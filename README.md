@@ -35,21 +35,24 @@ docker compose up -d --build
 curl http://localhost:8080/health
 ```
 
+Docker Compose 会把 `POSTGRES_DB`、`POSTGRES_USER`、`POSTGRES_PASSWORD` 直接传给数据库和 API，后端负责安全生成连接地址，不需要重复填写 `DATABASE_URL`。仅在连接云数据库或需要完整自定义连接参数时才设置 `DATABASE_URL`，设置后它会覆盖上述 PostgreSQL 配置。
+
 首次体验可保留 `PAYMENT_MOCK=true`。生产必须设置 `PAYMENT_MOCK=false`，并将 `PUBLIC_URL` 配置为支付平台可访问的 HTTPS 地址。支付宝和微信字段见 [支付配置说明](docs/payment-configuration.md)。
 
 ## 初始化流程
 
-1. 调用 `POST /api/admin-auth/bootstrap`，或在 Vben 登录页首次使用邮箱和至少 8 位密码，创建首个管理员。
-2. 管理员登录后通过 `POST /api/admin/users` 创建用户，或开放 `/api/user-auth/register` 让用户注册。
-3. `POST /api/admin/api-clients` 创建业务后端凭证，立即保存只展示一次的 `client_secret`。
-4. 创建全局套餐并配置当前实例的支付商户。
-5. 业务后端使用 `X-API-Key`、`X-API-Secret` 调用 `/api/client/orders`。
-6. SaaSKit 验签支付回调，原子更新订单并生成该 `user_id` 的订阅。
-7. 业务后端调用 `/api/client/subscription/check?user_id=...` 查询会员状态。
+1. 部署后首次打开 Vben 管理端，页面会通过 `GET /api/auth/initialization` 检测初始化状态并自动进入首次注册页。
+2. 提交名称、邮箱和至少 8 位密码到 `POST /api/auth/register`，首位用户会以 `super_admin` 角色创建并直接登录。初始化完成后该注册接口会返回 409，不能再创建第二位超级管理员。
+3. 管理员登录后通过 `POST /api/admin/users` 创建用户，或开放 `/api/user-auth/register` 让用户注册。
+4. `POST /api/admin/api-clients` 创建业务后端凭证，立即保存只展示一次的 `client_secret`。
+5. 创建全局套餐并配置当前实例的支付商户。
+6. 业务后端使用 `X-API-Key`、`X-API-Secret` 调用 `/api/client/orders`。
+7. SaaSKit 验签支付回调，原子更新订单并生成该 `user_id` 的订阅。
+8. 业务后端调用 `/api/client/subscription/check?user_id=...` 查询会员状态。
 
 将 `ALLOW_USER_REGISTRATION=false` 可关闭公开注册，只允许后台创建用户。
 
-Vben 管理端可直接调用 `/api/auth/login`。数据库为空时，第一次使用邮箱和至少 8 位密码登录会初始化首个管理员；此后只执行正常登录。登录响应同时提供 Vben 使用的 `accessToken` 和标准接口保留的 `access_token`。
+Vben 管理端使用 `/api/auth/register` 完成一次性初始化，之后通过 `/api/auth/login` 正常登录。未初始化时直接调用登录接口会返回 428；登录与注册响应同时提供 Vben 使用的 `accessToken` 和标准接口保留的 `access_token`。
 
 ## 本地后端
 

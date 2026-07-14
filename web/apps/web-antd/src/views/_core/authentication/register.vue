@@ -2,25 +2,39 @@
 import type { VbenFormSchema } from '@vben/common-ui';
 import type { Recordable } from '@vben/types';
 
-import { computed, h, ref } from 'vue';
+import { computed } from 'vue';
 
 import { AuthenticationRegister, z } from '@vben/common-ui';
 import { $t } from '@vben/locales';
 
+import { useAuthStore } from '#/store';
+
 defineOptions({ name: 'Register' });
 
-const loading = ref(false);
+const authStore = useAuthStore();
 
 const formSchema = computed((): VbenFormSchema[] => {
   return [
     {
       component: 'VbenInput',
       componentProps: {
-        placeholder: $t('authentication.usernameTip'),
+        placeholder: '请输入管理员名称',
       },
-      fieldName: 'username',
-      label: $t('authentication.username'),
-      rules: z.string().min(1, { message: $t('authentication.usernameTip') }),
+      fieldName: 'name',
+      label: '管理员名称',
+      rules: z.string().min(1, { message: '请输入管理员名称' }),
+    },
+    {
+      component: 'VbenInput',
+      componentProps: {
+        placeholder: 'admin@example.com',
+      },
+      fieldName: 'email',
+      label: '管理员邮箱',
+      rules: z
+        .string()
+        .min(1, { message: '请输入管理员邮箱' })
+        .email('请输入有效的邮箱地址'),
     },
     {
       component: 'VbenInputPassword',
@@ -35,7 +49,7 @@ const formSchema = computed((): VbenFormSchema[] => {
           strengthText: () => $t('authentication.passwordStrength'),
         };
       },
-      rules: z.string().min(1, { message: $t('authentication.passwordTip') }),
+      rules: z.string().min(8, { message: '密码至少 8 位' }),
     },
     {
       component: 'VbenInputPassword',
@@ -47,7 +61,7 @@ const formSchema = computed((): VbenFormSchema[] => {
           const { password } = values;
           return z
             .string({ required_error: $t('authentication.passwordTip') })
-            .min(1, { message: $t('authentication.passwordTip') })
+            .min(8, { message: '密码至少 8 位' })
             .refine((value) => value === password, {
               message: $t('authentication.confirmPasswordTip'),
             });
@@ -57,39 +71,21 @@ const formSchema = computed((): VbenFormSchema[] => {
       fieldName: 'confirmPassword',
       label: $t('authentication.confirmPassword'),
     },
-    {
-      component: 'VbenCheckbox',
-      fieldName: 'agreePolicy',
-      renderComponentContent: () => ({
-        default: () =>
-          h('span', [
-            $t('authentication.agree'),
-            h(
-              'a',
-              {
-                class: 'vben-link ml-1 ',
-                href: '',
-              },
-              `${$t('authentication.privacyPolicy')} & ${$t('authentication.terms')}`,
-            ),
-          ]),
-      }),
-      rules: z.boolean().refine((value) => !!value, {
-        message: $t('authentication.agreeTip'),
-      }),
-    },
   ];
 });
 
-function handleSubmit(value: Recordable<any>) {
-  void value;
+async function handleSubmit(value: Recordable<any>) {
+  await authStore.registerFirstAdmin(value);
 }
 </script>
 
 <template>
   <AuthenticationRegister
     :form-schema="formSchema"
-    :loading="loading"
+    :loading="authStore.loginLoading"
+    submit-button-text="创建超级管理员"
+    sub-title="这是首次部署初始化。该账号拥有系统全部管理权限。"
+    title="注册首位用户"
     @submit="handleSubmit"
   />
 </template>

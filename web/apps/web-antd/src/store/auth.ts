@@ -10,7 +10,13 @@ import { resetAllStores, useAccessStore, useUserStore } from '@vben/stores';
 import { notification } from 'ant-design-vue';
 import { defineStore } from 'pinia';
 
-import { getAccessCodesApi, getUserInfoApi, loginApi, logoutApi } from '#/api';
+import {
+  getAccessCodesApi,
+  getUserInfoApi,
+  loginApi,
+  logoutApi,
+  registerFirstAdminApi,
+} from '#/api';
 import { $t } from '#/locales';
 
 export const useAuthStore = defineStore('auth', () => {
@@ -77,6 +83,37 @@ export const useAuthStore = defineStore('auth', () => {
     };
   }
 
+  async function registerFirstAdmin(params: Recordable<any>) {
+    try {
+      loginLoading.value = true;
+      const { accessToken } = await registerFirstAdminApi({
+        email: params.email,
+        name: params.name,
+        password: params.password,
+      });
+      if (!accessToken) {
+        return null;
+      }
+
+      accessStore.setAccessToken(accessToken);
+      const [userInfo, accessCodes] = await Promise.all([
+        fetchUserInfo(),
+        getAccessCodesApi(),
+      ]);
+      userStore.setUserInfo(userInfo);
+      accessStore.setAccessCodes(accessCodes);
+      await router.push(userInfo.homePath || preferences.app.defaultHomePath);
+      notification.success({
+        description: `超级管理员 ${userInfo.realName || userInfo.username} 已创建`,
+        duration: 3,
+        message: '初始化成功',
+      });
+      return userInfo;
+    } finally {
+      loginLoading.value = false;
+    }
+  }
+
   async function logout(redirect: boolean = true) {
     try {
       await logoutApi();
@@ -113,5 +150,6 @@ export const useAuthStore = defineStore('auth', () => {
     fetchUserInfo,
     loginLoading,
     logout,
+    registerFirstAdmin,
   };
 });

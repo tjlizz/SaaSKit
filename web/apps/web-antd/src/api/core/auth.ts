@@ -12,6 +12,17 @@ export namespace AuthApi {
     accessToken: string;
   }
 
+  export interface RegisterParams {
+    email: string;
+    name: string;
+    password: string;
+  }
+
+  export interface InitializationResult {
+    initialized: boolean;
+    registration_required: boolean;
+  }
+
   export interface RefreshTokenResult {
     data: string;
     status: number;
@@ -23,6 +34,16 @@ export namespace AuthApi {
  */
 export async function loginApi(data: AuthApi.LoginParams) {
   return requestClient.post<AuthApi.LoginResult>('/auth/login', data);
+}
+
+export async function getInitializationApi() {
+  return requestClient.get<AuthApi.InitializationResult>(
+    '/auth/initialization',
+  );
+}
+
+export async function registerFirstAdminApi(data: AuthApi.RegisterParams) {
+  return requestClient.post<AuthApi.LoginResult>('/auth/register', data);
 }
 
 /**

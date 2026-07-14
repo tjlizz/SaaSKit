@@ -28,6 +28,11 @@ func NewServer(db *gorm.DB, redisClient *redis.Client, cfg Config) (*Server, err
 		if err := db.AutoMigrate(Models()...); err != nil {
 			return nil, err
 		}
+		// Existing installations predate explicit roles. Their current
+		// administrators own the instance and therefore become super admins.
+		if err := db.Model(&Admin{}).Where("role = ? OR role IS NULL", "").Update("role", "super_admin").Error; err != nil {
+			return nil, err
+		}
 	}
 	s := &Server{DB: db, Redis: redisClient, Config: cfg}
 	r := gin.New()
@@ -35,6 +40,8 @@ func NewServer(db *gorm.DB, redisClient *redis.Client, cfg Config) (*Server, err
 	r.Use(cors.New(cors.Config{AllowOrigins: cfg.FrontendOrigins, AllowMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}, AllowHeaders: []string{"Authorization", "Content-Type", "X-API-Key", "X-API-Secret"}, AllowCredentials: true, MaxAge: 12 * time.Hour}))
 	r.GET("/health", s.health)
 	api := r.Group("/api")
+	api.GET("/auth/initialization", s.initializationStatus)
+	api.POST("/auth/register", s.bootstrapAdmin)
 	api.POST("/admin-auth/bootstrap", s.bootstrapAdmin)
 	api.POST("/admin-auth/login", s.login)
 	api.POST("/admin-auth/refresh", s.refresh)

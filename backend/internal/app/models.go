@@ -11,6 +11,7 @@ type Admin struct {
 	ID           string     `gorm:"primaryKey;size:36" json:"id"`
 	Email        string     `gorm:"uniqueIndex;size:255;not null" json:"email"`
 	Name         string     `gorm:"size:120;not null" json:"name"`
+	Role         string     `gorm:"index;size:32;not null;default:super_admin" json:"role"`
 	PasswordHash string     `json:"-"`
 	Status       string     `gorm:"index;size:20;not null;default:active" json:"status"`
 	LastLoginAt  *time.Time `json:"last_login_at,omitempty"`

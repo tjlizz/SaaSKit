@@ -158,11 +158,28 @@ func TestRejectsInvalidAPISecret(t *testing.T) {
 	}
 }
 
-func TestVbenFirstLoginInitializesAdmin(t *testing.T) {
+func TestVbenFirstUserRegistrationInitializesSuperAdmin(t *testing.T) {
 	s := testServer(t)
-	status, env := call(t, s, "POST", "/api/auth/login", map[string]any{"username": "owner@example.com", "password": "password123"}, nil)
+	status, env := call(t, s, "GET", "/api/auth/initialization", nil, nil)
+	if status != http.StatusOK {
+		t.Fatalf("initialization status: %d %s", status, env.Message)
+	}
+	initialization := decode[struct {
+		Initialized          bool `json:"initialized"`
+		RegistrationRequired bool `json:"registration_required"`
+	}](t, env.Data)
+	if initialization.Initialized || !initialization.RegistrationRequired {
+		t.Fatalf("unexpected empty instance status: %+v", initialization)
+	}
+
+	status, env = call(t, s, "POST", "/api/auth/login", map[string]any{"username": "owner@example.com", "password": "password123"}, nil)
+	if status != http.StatusPreconditionRequired {
+		t.Fatalf("login before initialization: want 428, got %d", status)
+	}
+
+	status, env = call(t, s, "POST", "/api/auth/register", map[string]any{"email": "owner@example.com", "name": "Owner", "password": "password123"}, nil)
 	if status != http.StatusCreated {
-		t.Fatalf("first login: %d %s", status, env.Message)
+		t.Fatalf("first registration: %d %s", status, env.Message)
 	}
 	result := decode[struct {
 		AccessToken string `json:"accessToken"`
@@ -175,10 +192,25 @@ func TestVbenFirstLoginInitializesAdmin(t *testing.T) {
 		t.Fatalf("user info: %d %s", status, env.Message)
 	}
 	info := decode[struct {
-		Username string `json:"username"`
-		HomePath string `json:"homePath"`
+		Username string   `json:"username"`
+		HomePath string   `json:"homePath"`
+		Roles    []string `json:"roles"`
 	}](t, env.Data)
-	if info.Username != "owner@example.com" || info.HomePath != "/dashboard/analytics" {
+	if info.Username != "owner@example.com" || info.HomePath != "/dashboard/analytics" || len(info.Roles) != 1 || info.Roles[0] != superAdminRole {
 		t.Fatalf("unexpected user info: %+v", info)
+	}
+
+	status, env = call(t, s, "GET", "/api/auth/initialization", nil, nil)
+	initialization = decode[struct {
+		Initialized          bool `json:"initialized"`
+		RegistrationRequired bool `json:"registration_required"`
+	}](t, env.Data)
+	if status != http.StatusOK || !initialization.Initialized || initialization.RegistrationRequired {
+		t.Fatalf("unexpected initialized status: %d %+v", status, initialization)
+	}
+
+	status, _ = call(t, s, "POST", "/api/auth/register", map[string]any{"email": "second@example.com", "name": "Second", "password": "password123"}, nil)
+	if status != http.StatusConflict {
+		t.Fatalf("second registration: want 409, got %d", status)
 	}
 }

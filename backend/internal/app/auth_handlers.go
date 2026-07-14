@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 )
 
 type adminCredentials struct {
@@ -16,6 +18,19 @@ type adminCredentials struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
 	Name     string `json:"name"`
+}
+
+const superAdminRole = "super_admin"
+
+var errInstanceInitialized = errors.New("instance has already been initialized")
+
+func (s *Server) initializationStatus(c *gin.Context) {
+	var count int64
+	if err := s.DB.Model(&Admin{}).Count(&count).Error; err != nil {
+		fail(c, 500, "failed to read instance initialization status")
+		return
+	}
+	ok(c, gin.H{"initialized": count > 0, "registration_required": count == 0})
 }
 
 func (s *Server) bootstrapAdmin(c *gin.Context) {
@@ -31,16 +46,38 @@ func (s *Server) bootstrapAdmin(c *gin.Context) {
 		return
 	}
 	hash, _ := bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
-	item := Admin{ID: uuid.NewString(), Email: strings.ToLower(strings.TrimSpace(input.Email)), Name: strings.TrimSpace(input.Name), PasswordHash: string(hash), Status: "active"}
+	item := Admin{ID: uuid.NewString(), Email: strings.ToLower(strings.TrimSpace(input.Email)), Name: strings.TrimSpace(input.Name), Role: superAdminRole, PasswordHash: string(hash), Status: "active"}
 	if item.Name == "" {
 		item.Name = item.Email
 	}
-	if err := s.DB.Create(&item).Error; err != nil {
-		fail(c, 409, "email already exists")
+	err := s.DB.Transaction(func(tx *gorm.DB) error {
+		// A transaction-level advisory lock also protects deployments running
+		// multiple API replicas against two simultaneous first registrations.
+		if tx.Dialector.Name() == "postgres" {
+			if err := tx.Exec("SELECT pg_advisory_xact_lock(?)", int64(7_246_454_831)).Error; err != nil {
+				return err
+			}
+		}
+		var current int64
+		if err := tx.Model(&Admin{}).Count(&current).Error; err != nil {
+			return err
+		}
+		if current > 0 {
+			return errInstanceInitialized
+		}
+		return tx.Create(&item).Error
+	})
+	if errors.Is(err, errInstanceInitialized) {
+		fail(c, 409, "instance has already been initialized")
+		return
+	}
+	if err != nil {
+		fail(c, 409, "administrator initialization conflict")
 		return
 	}
 	s.issueTokens(c, item.ID)
-	created(c, gin.H{"access_token": s.accessToken(item.ID), "admin": item})
+	accessToken := s.accessToken(item.ID)
+	created(c, gin.H{"accessToken": accessToken, "access_token": accessToken, "admin": item})
 }
 
 func (s *Server) login(c *gin.Context) {
@@ -57,23 +94,7 @@ func (s *Server) login(c *gin.Context) {
 	var adminCount int64
 	s.DB.Model(&Admin{}).Count(&adminCount)
 	if adminCount == 0 {
-		if !strings.Contains(identity, "@") || len(input.Password) < 8 {
-			fail(c, 400, "first login requires an email and a password of at least 8 characters")
-			return
-		}
-		hash, _ := bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
-		name := strings.TrimSpace(input.Name)
-		if name == "" {
-			name = strings.Split(identity, "@")[0]
-		}
-		item := Admin{ID: uuid.NewString(), Email: identity, Name: name, PasswordHash: string(hash), Status: "active"}
-		if err := s.DB.Create(&item).Error; err != nil {
-			fail(c, 409, "administrator initialization conflict; please retry login")
-			return
-		}
-		s.issueTokens(c, item.ID)
-		accessToken := s.accessToken(item.ID)
-		created(c, gin.H{"accessToken": accessToken, "access_token": accessToken, "admin": item})
+		fail(c, 428, "instance is not initialized; register the first administrator")
 		return
 	}
 	var item Admin
@@ -138,8 +159,23 @@ func (s *Server) vbenUserInfo(c *gin.Context) {
 		fail(c, 404, "admin not found")
 		return
 	}
-	ok(c, gin.H{"userId": item.ID, "username": item.Email, "realName": item.Name, "avatar": "", "roles": []string{"admin"}, "desc": "SaaSKit administrator", "homePath": "/dashboard/analytics", "token": ""})
+	role := item.Role
+	if role == "" {
+		role = superAdminRole
+	}
+	ok(c, gin.H{"userId": item.ID, "username": item.Email, "realName": item.Name, "avatar": "", "roles": []string{role}, "desc": "SaaSKit administrator", "homePath": "/dashboard/analytics", "token": ""})
 }
 
-func (s *Server) vbenAccessCodes(c *gin.Context) { ok(c, []string{"SAASKIT_ADMIN"}) }
-func (s *Server) vbenMenus(c *gin.Context)       { ok(c, []any{}) }
+func (s *Server) vbenAccessCodes(c *gin.Context) {
+	var item Admin
+	if s.DB.Select("role").First(&item, "id = ?", adminID(c)).Error != nil {
+		fail(c, 404, "admin not found")
+		return
+	}
+	if item.Role == superAdminRole || item.Role == "" {
+		ok(c, []string{"SAASKIT_SUPER_ADMIN"})
+		return
+	}
+	ok(c, []string{"SAASKIT_ADMIN"})
+}
+func (s *Server) vbenMenus(c *gin.Context) { ok(c, []any{}) }

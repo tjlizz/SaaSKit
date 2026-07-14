@@ -1,18 +1,31 @@
 openapi: 3.1.0
 info:
   title: SaaSKit Single-Product API
-  version: 0.2.0
+  version: 0.3.0
   description: Self-hosted, single-product SaaS user, billing, payment and subscription API. No tenant or cloud-platform boundary exists.
 servers: [{url: http://localhost:8080/api}]
 tags: [{name: AdminAuth}, {name: UserAuth}, {name: Users}, {name: APIClients}, {name: Plans}, {name: Billing}, {name: Payments}]
 paths:
+  /auth/initialization:
+    get:
+      tags: [AdminAuth]
+      summary: Check whether the deployment has its first administrator
+      responses:
+        '200': {description: Envelope containing initialized and registration_required}
+  /auth/register:
+    post:
+      tags: [AdminAuth]
+      summary: Register the first user as the super administrator
+      description: This endpoint is available only while the deployment has no administrator.
+      requestBody: {$ref: '#/components/requestBodies/AdminCredentials'}
+      responses: {'201': {description: Super administrator and Vben-compatible accessToken}, '409': {$ref: '#/components/responses/Error'}}
   /auth/login:
     post:
       tags: [AdminAuth]
       summary: Vben-compatible administrator login
-      description: On an empty database, the first valid email and 8-character password initialize the administrator.
+      description: The deployment must first be initialized through /auth/register.
       requestBody: {required: true, content: {application/json: {schema: {type: object, required: [username, password], properties: {username: {type: string}, password: {type: string, minLength: 8}}}}}}
-      responses: {'200': {description: Envelope containing data.accessToken}, '201': {description: First administrator initialized}, '401': {$ref: '#/components/responses/Error'}}
+      responses: {'200': {description: Envelope containing data.accessToken}, '401': {$ref: '#/components/responses/Error'}, '428': {$ref: '#/components/responses/Error'}}
   /auth/refresh:
     post: {tags: [AdminAuth], summary: Vben-compatible token refresh, responses: {'200': {description: Refreshed token}}}
   /auth/logout:
@@ -26,7 +39,7 @@ paths:
   /admin-auth/bootstrap:
     post:
       tags: [AdminAuth]
-      summary: Create the first administrator; available only while no admin exists
+      summary: Legacy alias for registering the first super administrator
       requestBody: {$ref: '#/components/requestBodies/AdminCredentials'}
       responses: {'201': {description: Admin and access token}, '409': {$ref: '#/components/responses/Error'}}
   /admin-auth/login:

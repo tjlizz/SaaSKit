@@ -5,6 +5,7 @@ import { preferences } from '@vben/preferences';
 import { useAccessStore, useUserStore } from '@vben/stores';
 import { startProgress, stopProgress } from '@vben/utils';
 
+import { getInitializationApi } from '#/api';
 import { accessRoutes, coreRouteNames } from '#/router/routes';
 import { useAuthStore } from '#/store';
 
@@ -49,6 +50,22 @@ function setupAccessGuard(router: Router) {
     const accessStore = useAccessStore();
     const userStore = useUserStore();
     const authStore = useAuthStore();
+
+    // An empty deployment has exactly one public action: registering its
+    // first user. Once initialized, the registration page is closed.
+    if (!accessStore.accessToken && to.path.startsWith('/auth/')) {
+      try {
+        const { initialized } = await getInitializationApi();
+        if (!initialized && to.path !== '/auth/register') {
+          return { path: '/auth/register', replace: true };
+        }
+        if (initialized && to.path === '/auth/register') {
+          return { path: LOGIN_PATH, replace: true };
+        }
+      } catch {
+        // Keep login reachable if the status endpoint is temporarily down.
+      }
+    }
 
     // 基本路由，这些路由不需要进入权限拦截
     if (coreRouteNames.includes(to.name as string)) {
