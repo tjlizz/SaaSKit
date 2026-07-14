@@ -12,6 +12,13 @@ import (
 )
 
 func main() {
+	dotEnvPath, err := loadDotEnv()
+	if err != nil {
+		log.Fatal(err)
+	}
+	if dotEnvPath != "" {
+		log.Printf("loaded environment from %s", dotEnvPath)
+	}
 	cfg := app.LoadConfig()
 	var dialector gorm.Dialector
 	if strings.HasPrefix(cfg.DatabaseURL, "sqlite:") {

@@ -35,7 +35,9 @@ docker compose up -d --build
 curl http://localhost:8080/health
 ```
 
-Docker Compose 会把 `POSTGRES_DB`、`POSTGRES_USER`、`POSTGRES_PASSWORD` 直接传给数据库和 API，后端负责安全生成连接地址，不需要重复填写 `DATABASE_URL`。仅在连接云数据库或需要完整自定义连接参数时才设置 `DATABASE_URL`，设置后它会覆盖上述 PostgreSQL 配置。
+端口只配置一次：根目录 `.env` 中的 `PORT` 同时控制直接运行的 API 端口、Docker 内外端口以及 Vben 本地开发代理。未设置 `PUBLIC_URL` 时，它也会自动使用该端口。
+
+Docker Compose 会把 `POSTGRES_DB`、`POSTGRES_USER`、`POSTGRES_PASSWORD` 直接传给数据库和 API，后端负责安全生成连接地址，不需要重复填写 `DATABASE_URL`。仅在连接云数据库时设置 `DATABASE_URL`；仅在连接外部 Redis 或启用 Redis 密码时设置 `REDIS_URL`；仅在经过域名、HTTPS 或反向代理对外提供支付回调时设置 `PUBLIC_URL`。这些覆盖项描述的是不同外部地址，不是重复配置。
 
 首次体验可保留 `PAYMENT_MOCK=true`。生产必须设置 `PAYMENT_MOCK=false`，并将 `PUBLIC_URL` 配置为支付平台可访问的 HTTPS 地址。支付宝和微信字段见 [支付配置说明](docs/payment-configuration.md)。
 
@@ -61,6 +63,8 @@ cd backend
 go mod download
 go run -buildvcs=false ./cmd/api
 ```
+
+直接运行源码或编译后的程序时会自动查找当前目录、`backend` 上级目录和可执行文件相邻位置的 `.env`。操作系统、PowerShell 或 Docker 已设置的环境变量优先，不会被 `.env` 覆盖；生产环境也可以不提供 `.env`。
 
 配置项见 [.env.example](.env.example)，接口见 [OpenAPI](docs/openapi.yaml)。
 

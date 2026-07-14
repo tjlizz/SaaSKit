@@ -23,12 +23,13 @@ type Config struct {
 }
 
 func LoadConfig() Config {
+	port := env("PORT", "8080")
 	c := Config{
-		Port:                  env("PORT", "8080"),
+		Port:                  port,
 		DatabaseURL:           databaseURL(),
 		RedisURL:              env("REDIS_URL", "redis://localhost:6379/0"),
 		JWTSecret:             env("JWT_SECRET", "change-me-in-production"),
-		PublicURL:             strings.TrimRight(env("PUBLIC_URL", "http://localhost:8080"), "/"),
+		PublicURL:             strings.TrimRight(env("PUBLIC_URL", "http://localhost:"+port), "/"),
 		FrontendOrigins:       strings.Split(env("FRONTEND_ORIGINS", "http://localhost:5666"), ","),
 		PaymentMock:           envBool("PAYMENT_MOCK", true),
 		AutoMigrate:           envBool("AUTO_MIGRATE", true),

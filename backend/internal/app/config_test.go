@@ -31,3 +31,12 @@ func TestExplicitDatabaseURLOverridesPostgresEnvironment(t *testing.T) {
 		t.Fatalf("want explicit DATABASE_URL %q, got %q", want, got)
 	}
 }
+
+func TestPublicURLDefaultsToConfiguredPort(t *testing.T) {
+	t.Setenv("PORT", "8083")
+	t.Setenv("PUBLIC_URL", "")
+	config := LoadConfig()
+	if config.Port != "8083" || config.PublicURL != "http://localhost:8083" {
+		t.Fatalf("port and public URL are not aligned: port=%q publicURL=%q", config.Port, config.PublicURL)
+	}
+}
