@@ -27,13 +27,16 @@ type createOrderInput struct {
 }
 
 func (s *Server) createOrder(c *gin.Context) {
+	client, _ := c.Get("api_client")
+	apiClient, _ := client.(APIClient)
+	appID := apiClient.AppID
 	var input createOrderInput
 	if c.ShouldBindJSON(&input) != nil || strings.TrimSpace(input.PlanCode) == "" || strings.TrimSpace(input.UserID) == "" {
 		fail(c, 400, "plan_code and user_id are required")
 		return
 	}
 	var user users.User
-	if s.DB.Where("id = ? AND status = ?", input.UserID, "active").First(&user).Error != nil {
+	if s.DB.Where("id = ? AND app_id = ? AND status = ?", input.UserID, appID, "active").First(&user).Error != nil {
 		fail(c, 404, "active user not found")
 		return
 	}
@@ -44,7 +47,7 @@ func (s *Server) createOrder(c *gin.Context) {
 		input.Provider = "alipay"
 	}
 	var plan Plan
-	if s.DB.Where("plan_code = ? AND enabled = ?", input.PlanCode, true).First(&plan).Error != nil {
+	if s.DB.Where("app_id = ? AND plan_code = ? AND enabled = ?", appID, input.PlanCode, true).First(&plan).Error != nil {
 		fail(c, 404, "enabled plan not found")
 		return
 	}
@@ -58,7 +61,7 @@ func (s *Server) createOrder(c *gin.Context) {
 	orderNo := "SK" + time.Now().UTC().Format("20060102150405") + strings.ToUpper(randomSecret(5))
 	if strings.TrimSpace(input.RequestID) != "" {
 		var existing Order
-		if s.DB.Where("order_no = ?", input.RequestID).First(&existing).Error == nil {
+		if s.DB.Where("app_id = ? AND order_no = ?", appID, input.RequestID).First(&existing).Error == nil {
 			if existing.UserID != input.UserID {
 				fail(c, 409, "request_id belongs to another user")
 				return
@@ -68,7 +71,7 @@ func (s *Server) createOrder(c *gin.Context) {
 		}
 		orderNo = input.RequestID
 	}
-	item := Order{ID: uuid.NewString(), OrderNo: orderNo, UserID: user.ID, PlanID: plan.ID, Provider: input.Provider, Status: "pending", AmountCents: plan.PriceCents * int64(input.Quantity), Currency: plan.Currency, Quantity: input.Quantity}
+	item := Order{ID: uuid.NewString(), AppID: appID, OrderNo: orderNo, UserID: user.ID, PlanID: plan.ID, Provider: input.Provider, Status: "pending", AmountCents: plan.PriceCents * int64(input.Quantity), Currency: plan.Currency, Quantity: input.Quantity}
 	if err := s.DB.Create(&item).Error; err != nil {
 		fail(c, 409, "could not create order; request_id may already exist")
 		return
@@ -96,16 +99,20 @@ func (s *Server) createOrder(c *gin.Context) {
 }
 
 func (s *Server) queryOrder(c *gin.Context) {
+	client, _ := c.Get("api_client")
+	apiClient, _ := client.(APIClient)
 	var item Order
-	if s.DB.Where("order_no = ?", c.Param("orderNo")).First(&item).Error != nil {
+	if s.DB.Where("app_id = ? AND order_no = ?", apiClient.AppID, c.Param("orderNo")).First(&item).Error != nil {
 		fail(c, 404, "order not found")
 		return
 	}
 	ok(c, item)
 }
 func (s *Server) queryProviderOrder(c *gin.Context) {
+	client, _ := c.Get("api_client")
+	apiClient, _ := client.(APIClient)
 	var item Order
-	if s.DB.Where("order_no = ?", c.Param("orderNo")).First(&item).Error != nil {
+	if s.DB.Where("app_id = ? AND order_no = ?", apiClient.AppID, c.Param("orderNo")).First(&item).Error != nil {
 		fail(c, 404, "order not found")
 		return
 	}
@@ -126,13 +133,15 @@ func (s *Server) queryProviderOrder(c *gin.Context) {
 	ok(c, gin.H{"order_no": item.OrderNo, "local_status": item.Status, "provider_status": status})
 }
 func (s *Server) checkSubscription(c *gin.Context) {
+	client, _ := c.Get("api_client")
+	apiClient, _ := client.(APIClient)
 	userID := strings.TrimSpace(c.Query("user_id"))
 	if userID == "" {
 		fail(c, 400, "user_id is required")
 		return
 	}
 	var item Subscription
-	err := s.DB.Preload("Plan").Where("user_id = ?", userID).First(&item).Error
+	err := s.DB.Preload("Plan").Where("app_id = ? AND user_id = ?", apiClient.AppID, userID).First(&item).Error
 	if err != nil && isNotFound(err) {
 		ok(c, gin.H{"valid": false, "user_id": userID, "plan": nil, "expires_at": nil})
 		return
@@ -147,13 +156,13 @@ func (s *Server) checkSubscription(c *gin.Context) {
 
 func (s *Server) listAccountOrders(c *gin.Context) {
 	var items []Order
-	s.DB.Where("user_id = ?", users.UserID(c)).Order("created_at desc").Find(&items)
+	s.DB.Where("app_id = ? AND user_id = ?", users.ApplicationID(c), users.UserID(c)).Order("created_at desc").Find(&items)
 	ok(c, items)
 }
 
 func (s *Server) accountSubscription(c *gin.Context) {
 	var item Subscription
-	err := s.DB.Preload("Plan").Where("user_id = ?", users.UserID(c)).First(&item).Error
+	err := s.DB.Preload("Plan").Where("app_id = ? AND user_id = ?", users.ApplicationID(c), users.UserID(c)).First(&item).Error
 	if err != nil && isNotFound(err) {
 		ok(c, gin.H{"valid": false, "plan": nil, "expires_at": nil})
 		return
@@ -240,7 +249,7 @@ func (s *Server) markPaid(orderNo, tradeNo string) error {
 			return err
 		}
 		var subscription Subscription
-		err := tx.Where("user_id = ?", order.UserID).First(&subscription).Error
+		err := tx.Where("app_id = ? AND user_id = ?", order.AppID, order.UserID).First(&subscription).Error
 		start := now
 		if err == nil && subscription.SubscriptionStatus == "active" && subscription.CurrentPeriodEnd.After(now) {
 			start = subscription.CurrentPeriodEnd
@@ -249,7 +258,7 @@ func (s *Server) markPaid(orderNo, tradeNo string) error {
 		}
 		end := periodEnd(start, plan.BillingCycle)
 		if isNotFound(err) {
-			subscription = Subscription{ID: uuid.NewString(), UserID: order.UserID}
+			subscription = Subscription{ID: uuid.NewString(), AppID: order.AppID, UserID: order.UserID}
 		}
 		subscription.PlanID = plan.ID
 		subscription.OrderID = order.ID
@@ -281,7 +290,7 @@ func (s *Server) updateOrderStatus(c *gin.Context) {
 		return
 	}
 	var item Order
-	if s.DB.First(&item, "id = ?", c.Param("orderId")).Error != nil {
+	if s.DB.Where("id = ? AND app_id = ?", c.Param("orderId"), applicationID(c)).First(&item).Error != nil {
 		fail(c, 404, "order not found")
 		return
 	}
@@ -295,7 +304,7 @@ func (s *Server) updateOrderStatus(c *gin.Context) {
 	}
 	s.DB.Model(&item).Update("status", input.Status)
 	if input.Status == "refunded" {
-		s.DB.Model(&Subscription{}).Where("order_id = ?", item.ID).Updates(map[string]any{"subscription_status": "cancelled", "current_period_end": time.Now()})
+		s.DB.Model(&Subscription{}).Where("app_id = ? AND order_id = ?", applicationID(c), item.ID).Updates(map[string]any{"subscription_status": "cancelled", "current_period_end": time.Now()})
 	}
 	s.DB.First(&item, "id = ?", item.ID)
 	ok(c, item)

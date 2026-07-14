@@ -47,6 +47,7 @@ func (s *Server) bootstrapAdmin(c *gin.Context) {
 	}
 	hash, _ := bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
 	item := Admin{ID: uuid.NewString(), Email: strings.ToLower(strings.TrimSpace(input.Email)), Name: strings.TrimSpace(input.Name), Role: superAdminRole, PasswordHash: string(hash), Status: "active"}
+	application := Application{ID: uuid.NewString(), Name: "默认应用", AppKey: "app_" + randomSecret(16), Status: "active"}
 	if item.Name == "" {
 		item.Name = item.Email
 	}
@@ -65,7 +66,10 @@ func (s *Server) bootstrapAdmin(c *gin.Context) {
 		if current > 0 {
 			return errInstanceInitialized
 		}
-		return tx.Create(&item).Error
+		if err := tx.Create(&item).Error; err != nil {
+			return err
+		}
+		return tx.Create(&application).Error
 	})
 	if errors.Is(err, errInstanceInitialized) {
 		fail(c, 409, "instance has already been initialized")
@@ -77,7 +81,7 @@ func (s *Server) bootstrapAdmin(c *gin.Context) {
 	}
 	s.issueTokens(c, item.ID)
 	accessToken := s.accessToken(item.ID)
-	created(c, gin.H{"accessToken": accessToken, "access_token": accessToken, "admin": item})
+	created(c, gin.H{"accessToken": accessToken, "access_token": accessToken, "admin": item, "application": application})
 }
 
 func (s *Server) login(c *gin.Context) {

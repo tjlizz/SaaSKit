@@ -17,10 +17,12 @@ type Handler struct {
 	DB                *gorm.DB
 	JWTSecret         string
 	AllowRegistration bool
+	ApplicationActive func(string) bool
 }
 
-func (h *Handler) Register(api, admin *gin.RouterGroup) {
+func (h *Handler) Register(api, admin *gin.RouterGroup, applicationMiddleware gin.HandlerFunc) {
 	auth := api.Group("/user-auth")
+	auth.Use(applicationMiddleware)
 	auth.POST("/register", h.register)
 	auth.POST("/login", h.login)
 	account := api.Group("/account")
@@ -77,7 +79,7 @@ func (h *Handler) register(c *gin.Context) {
 		return
 	}
 	hash, _ := passwordHash(input.Password)
-	item := User{ID: uuid.NewString(), Email: normalizedEmail(input.Email), Name: strings.TrimSpace(input.Name), Phone: phoneValue(input.Phone), PasswordHash: hash, Status: "active"}
+	item := User{ID: uuid.NewString(), AppID: ApplicationID(c), Email: normalizedEmail(input.Email), Name: strings.TrimSpace(input.Name), Phone: phoneValue(input.Phone), PasswordHash: hash, Status: "active"}
 	if item.Name == "" {
 		item.Name = item.Email
 	}
@@ -85,7 +87,7 @@ func (h *Handler) register(c *gin.Context) {
 		fail(c, 409, "email or phone already exists")
 		return
 	}
-	created(c, gin.H{"access_token": h.token(item.ID), "user": item})
+	created(c, gin.H{"access_token": h.token(item.ID, item.AppID), "user": item})
 }
 
 func (h *Handler) login(c *gin.Context) {
@@ -98,7 +100,7 @@ func (h *Handler) login(c *gin.Context) {
 		return
 	}
 	var item User
-	if err := h.DB.Where("email = ?", normalizedEmail(input.Email)).First(&item).Error; err != nil || bcrypt.CompareHashAndPassword([]byte(item.PasswordHash), []byte(input.Password)) != nil {
+	if err := h.DB.Where("app_id = ? AND email = ?", ApplicationID(c), normalizedEmail(input.Email)).First(&item).Error; err != nil || bcrypt.CompareHashAndPassword([]byte(item.PasswordHash), []byte(input.Password)) != nil {
 		fail(c, 401, "invalid email or password")
 		return
 	}
@@ -109,11 +111,11 @@ func (h *Handler) login(c *gin.Context) {
 	now := time.Now()
 	h.DB.Model(&item).Update("last_login_at", &now)
 	item.LastLoginAt = &now
-	ok(c, gin.H{"access_token": h.token(item.ID), "user": item})
+	ok(c, gin.H{"access_token": h.token(item.ID, item.AppID), "user": item})
 }
 
-func (h *Handler) token(id string) string {
-	token, _ := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"sub": id, "kind": "user", "exp": time.Now().Add(12 * time.Hour).Unix(), "iat": time.Now().Unix()}).SignedString([]byte(h.JWTSecret))
+func (h *Handler) token(id, appID string) string {
+	token, _ := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"sub": id, "app_id": appID, "kind": "user", "exp": time.Now().Add(12 * time.Hour).Unix(), "iat": time.Now().Unix()}).SignedString([]byte(h.JWTSecret))
 	return token
 }
 func (h *Handler) UserAuth() gin.HandlerFunc {
@@ -126,26 +128,33 @@ func (h *Handler) UserAuth() gin.HandlerFunc {
 		claims := jwt.MapClaims{}
 		token, err := jwt.ParseWithClaims(strings.TrimPrefix(header, "Bearer "), claims, func(*jwt.Token) (any, error) { return []byte(h.JWTSecret), nil }, jwt.WithValidMethods([]string{"HS256"}))
 		id, _ := claims["sub"].(string)
+		appID, _ := claims["app_id"].(string)
 		kind, _ := claims["kind"].(string)
-		if err != nil || !token.Valid || id == "" || kind != "user" {
+		if err != nil || !token.Valid || id == "" || appID == "" || kind != "user" {
 			fail(c, 401, "invalid or expired user token")
 			return
 		}
 		var count int64
-		h.DB.Model(&User{}).Where("id = ? AND status = ?", id, "active").Count(&count)
-		if count == 0 {
+		h.DB.Model(&User{}).Where("id = ? AND app_id = ? AND status = ?", id, appID, "active").Count(&count)
+		if count == 0 || (h.ApplicationActive != nil && !h.ApplicationActive(appID)) {
 			fail(c, 403, "user is disabled or missing")
 			return
 		}
 		c.Set("user_id", id)
+		c.Set("app_id", appID)
 		c.Next()
 	}
 }
 func UserID(c *gin.Context) string { value, _ := c.Get("user_id"); id, _ := value.(string); return id }
+func ApplicationID(c *gin.Context) string {
+	value, _ := c.Get("app_id")
+	id, _ := value.(string)
+	return id
+}
 
 func (h *Handler) profile(c *gin.Context) {
 	var item User
-	if h.DB.First(&item, "id = ?", UserID(c)).Error != nil {
+	if h.DB.Where("id = ? AND app_id = ?", UserID(c), ApplicationID(c)).First(&item).Error != nil {
 		fail(c, 404, "user not found")
 		return
 	}
@@ -172,7 +181,7 @@ func (h *Handler) updateProfile(c *gin.Context) {
 	if input.AvatarURL != nil {
 		updates["avatar_url"] = strings.TrimSpace(*input.AvatarURL)
 	}
-	if err := h.DB.Model(&User{}).Where("id = ?", UserID(c)).Updates(updates).Error; err != nil {
+	if err := h.DB.Model(&User{}).Where("id = ? AND app_id = ?", UserID(c), ApplicationID(c)).Updates(updates).Error; err != nil {
 		fail(c, 409, "phone already exists")
 		return
 	}
@@ -188,7 +197,7 @@ func (h *Handler) changePassword(c *gin.Context) {
 		return
 	}
 	var item User
-	h.DB.First(&item, "id = ?", UserID(c))
+	h.DB.Where("id = ? AND app_id = ?", UserID(c), ApplicationID(c)).First(&item)
 	if bcrypt.CompareHashAndPassword([]byte(item.PasswordHash), []byte(input.CurrentPassword)) != nil {
 		fail(c, 401, "current password is incorrect")
 		return
@@ -207,7 +216,7 @@ func (h *Handler) list(c *gin.Context) {
 	if size < 1 || size > 100 {
 		size = 20
 	}
-	query := h.DB.Model(&User{})
+	query := h.DB.Model(&User{}).Where("app_id = ?", ApplicationID(c))
 	if q := strings.TrimSpace(c.Query("q")); q != "" {
 		like := "%" + q + "%"
 		query = query.Where("LOWER(email) LIKE LOWER(?) OR LOWER(name) LIKE LOWER(?) OR phone LIKE ?", like, like, like)
@@ -241,7 +250,7 @@ func (h *Handler) create(c *gin.Context) {
 		return
 	}
 	hash, _ := passwordHash(input.Password)
-	item := User{ID: uuid.NewString(), Email: normalizedEmail(input.Email), Name: strings.TrimSpace(input.Name), Phone: phoneValue(input.Phone), PasswordHash: hash, Status: input.Status}
+	item := User{ID: uuid.NewString(), AppID: ApplicationID(c), Email: normalizedEmail(input.Email), Name: strings.TrimSpace(input.Name), Phone: phoneValue(input.Phone), PasswordHash: hash, Status: input.Status}
 	if item.Name == "" {
 		item.Name = item.Email
 	}
@@ -253,7 +262,7 @@ func (h *Handler) create(c *gin.Context) {
 }
 func (h *Handler) get(c *gin.Context) {
 	var item User
-	if h.DB.First(&item, "id = ?", c.Param("id")).Error != nil {
+	if h.DB.Where("id = ? AND app_id = ?", c.Param("id"), ApplicationID(c)).First(&item).Error != nil {
 		fail(c, 404, "user not found")
 		return
 	}
@@ -291,7 +300,7 @@ func (h *Handler) update(c *gin.Context) {
 	if input.PhoneVerified != nil {
 		updates["phone_verified"] = *input.PhoneVerified
 	}
-	result := h.DB.Model(&User{}).Where("id = ?", c.Param("id")).Updates(updates)
+	result := h.DB.Model(&User{}).Where("id = ? AND app_id = ?", c.Param("id"), ApplicationID(c)).Updates(updates)
 	if result.Error != nil {
 		fail(c, 409, "email or phone already exists")
 		return
@@ -310,7 +319,7 @@ func (h *Handler) setStatus(c *gin.Context) {
 		fail(c, 400, "status must be active or disabled")
 		return
 	}
-	result := h.DB.Model(&User{}).Where("id = ?", c.Param("id")).Update("status", input.Status)
+	result := h.DB.Model(&User{}).Where("id = ? AND app_id = ?", c.Param("id"), ApplicationID(c)).Update("status", input.Status)
 	if result.RowsAffected == 0 {
 		fail(c, 404, "user not found")
 		return
@@ -326,7 +335,7 @@ func (h *Handler) resetPassword(c *gin.Context) {
 		return
 	}
 	hash, _ := passwordHash(input.Password)
-	result := h.DB.Model(&User{}).Where("id = ?", c.Param("id")).Update("password_hash", hash)
+	result := h.DB.Model(&User{}).Where("id = ? AND app_id = ?", c.Param("id"), ApplicationID(c)).Update("password_hash", hash)
 	if result.RowsAffected == 0 {
 		fail(c, 404, "user not found")
 		return
@@ -335,12 +344,12 @@ func (h *Handler) resetPassword(c *gin.Context) {
 }
 func (h *Handler) remove(c *gin.Context) {
 	var count int64
-	h.DB.Table("billing_orders").Where("user_id = ?", c.Param("id")).Count(&count)
+	h.DB.Table("billing_orders").Where("app_id = ? AND user_id = ?", ApplicationID(c), c.Param("id")).Count(&count)
 	if count > 0 {
 		fail(c, 409, "user with orders cannot be deleted; disable the user instead")
 		return
 	}
-	result := h.DB.Delete(&User{}, "id = ?", c.Param("id"))
+	result := h.DB.Where("id = ? AND app_id = ?", c.Param("id"), ApplicationID(c)).Delete(&User{})
 	if result.RowsAffected == 0 {
 		fail(c, 404, "user not found")
 		return

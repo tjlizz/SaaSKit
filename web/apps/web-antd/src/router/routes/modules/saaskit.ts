@@ -2,6 +2,19 @@ import type { RouteRecordRaw } from 'vue-router';
 
 const routes: RouteRecordRaw[] = [
   {
+    meta: { icon: 'lucide:boxes', order: 5, title: '应用中心' },
+    name: 'ApplicationCenter',
+    path: '/applications',
+    children: [
+      {
+        component: () => import('#/views/saaskit/applications/index.vue'),
+        meta: { icon: 'lucide:app-window', title: '应用管理' },
+        name: 'Applications',
+        path: '',
+      },
+    ],
+  },
+  {
     meta: { icon: 'lucide:users', order: 10, title: '用户中心' },
     name: 'CustomerCenter',
     path: '/customers',

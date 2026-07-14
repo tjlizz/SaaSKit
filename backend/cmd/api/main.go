@@ -42,6 +42,6 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	log.Printf("SaaSKit single-product API listening on :%s", cfg.Port)
+	log.Printf("SaaSKit multi-application API listening on :%s", cfg.Port)
 	log.Fatal(server.Router.Run(":" + cfg.Port))
 }

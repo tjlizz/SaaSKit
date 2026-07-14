@@ -8,8 +8,9 @@ import (
 
 type User struct {
 	ID            string         `gorm:"primaryKey;size:36" json:"id"`
-	Email         string         `gorm:"uniqueIndex;size:255;not null" json:"email"`
-	Phone         *string        `gorm:"uniqueIndex;size:32" json:"phone,omitempty"`
+	AppID         string         `gorm:"uniqueIndex:ux_users_app_email;uniqueIndex:ux_users_app_phone;size:36;not null" json:"app_id"`
+	Email         string         `gorm:"uniqueIndex:ux_users_app_email;size:255;not null" json:"email"`
+	Phone         *string        `gorm:"uniqueIndex:ux_users_app_phone;size:32" json:"phone,omitempty"`
 	Name          string         `gorm:"size:120;not null" json:"name"`
 	AvatarURL     string         `gorm:"size:500" json:"avatar_url"`
 	PasswordHash  string         `json:"-"`

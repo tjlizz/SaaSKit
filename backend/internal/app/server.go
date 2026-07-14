@@ -37,7 +37,7 @@ func NewServer(db *gorm.DB, redisClient *redis.Client, cfg Config) (*Server, err
 	s := &Server{DB: db, Redis: redisClient, Config: cfg}
 	r := gin.New()
 	r.Use(gin.Recovery(), gin.Logger())
-	r.Use(cors.New(cors.Config{AllowOrigins: cfg.FrontendOrigins, AllowMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}, AllowHeaders: []string{"Authorization", "Content-Type", "X-API-Key", "X-API-Secret"}, AllowCredentials: true, MaxAge: 12 * time.Hour}))
+	r.Use(cors.New(cors.Config{AllowOrigins: cfg.FrontendOrigins, AllowMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}, AllowHeaders: []string{"Authorization", "Content-Type", "X-API-Key", "X-API-Secret", "X-App-ID", "X-App-Key"}, AllowCredentials: true, MaxAge: 12 * time.Hour}))
 	r.GET("/health", s.health)
 	api := r.Group("/api")
 	api.GET("/auth/initialization", s.initializationStatus)
@@ -61,27 +61,41 @@ func NewServer(db *gorm.DB, redisClient *redis.Client, cfg Config) (*Server, err
 	admin := api.Group("/admin")
 	admin.Use(s.adminAuth())
 	admin.GET("/me", s.adminInfo)
-	admin.GET("/api-clients", s.listAPIClients)
-	admin.POST("/api-clients", s.createAPIClient)
-	admin.PUT("/api-clients/:id", s.updateAPIClient)
-	admin.DELETE("/api-clients/:id", s.deleteAPIClient)
-	admin.POST("/api-clients/:id/rotate-secret", s.rotateAPIClientSecret)
-	admin.GET("/plans", s.listPlans)
-	admin.POST("/plans", s.createPlan)
-	admin.PUT("/plans/:planId", s.updatePlan)
-	admin.DELETE("/plans/:planId", s.deletePlan)
-	admin.GET("/orders", s.listOrders)
-	admin.PUT("/orders/:orderId/status", s.updateOrderStatus)
-	admin.GET("/subscriptions", s.listSubscriptions)
+	admin.GET("/applications", s.listApplications)
+	admin.POST("/applications", s.createApplication)
+	admin.PUT("/applications/:id", s.updateApplication)
+	admin.DELETE("/applications/:id", s.deleteApplication)
+	// Payment credentials belong to the deployment and are shared by all applications.
 	admin.GET("/payment-configs", s.listPaymentConfigs)
 	admin.PUT("/payment-configs/:provider", s.savePaymentConfig)
+	appAdmin := admin.Group("")
+	appAdmin.Use(s.applicationContext())
+	appAdmin.GET("/api-clients", s.listAPIClients)
+	appAdmin.POST("/api-clients", s.createAPIClient)
+	appAdmin.PUT("/api-clients/:id", s.updateAPIClient)
+	appAdmin.DELETE("/api-clients/:id", s.deleteAPIClient)
+	appAdmin.POST("/api-clients/:id/rotate-secret", s.rotateAPIClientSecret)
+	appAdmin.GET("/plans", s.listPlans)
+	appAdmin.POST("/plans", s.createPlan)
+	appAdmin.PUT("/plans/:planId", s.updatePlan)
+	appAdmin.DELETE("/plans/:planId", s.deletePlan)
+	appAdmin.GET("/orders", s.listOrders)
+	appAdmin.PUT("/orders/:orderId/status", s.updateOrderStatus)
+	appAdmin.GET("/subscriptions", s.listSubscriptions)
 	vben := api.Group("")
 	vben.Use(s.adminAuth())
 	vben.GET("/auth/codes", s.vbenAccessCodes)
 	vben.GET("/user/info", s.vbenUserInfo)
 	vben.GET("/menu/all", s.vbenMenus)
-	userHandler := &users.Handler{DB: db, JWTSecret: cfg.JWTSecret, AllowRegistration: cfg.AllowUserRegistration}
-	userHandler.Register(api, admin)
+	userHandler := &users.Handler{
+		DB: db, JWTSecret: cfg.JWTSecret, AllowRegistration: cfg.AllowUserRegistration,
+		ApplicationActive: func(appID string) bool {
+			var count int64
+			db.Model(&Application{}).Where("id = ? AND status = ?", appID, "active").Count(&count)
+			return count > 0
+		},
+	}
+	userHandler.Register(api, appAdmin, s.publicApplicationContext())
 	accountBilling := api.Group("/account")
 	accountBilling.Use(userHandler.UserAuth())
 	accountBilling.GET("/orders", s.listAccountOrders)
@@ -103,7 +117,7 @@ func (s *Server) health(c *gin.Context) {
 			redisStatus = "unavailable"
 		}
 	}
-	ok(c, gin.H{"status": "ok", "redis": redisStatus, "mode": "single-product"})
+	ok(c, gin.H{"status": "ok", "redis": redisStatus, "mode": "multi-application"})
 }
 func ok(c *gin.Context, data any) {
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": data, "message": "ok"})
@@ -152,6 +166,12 @@ func (s *Server) clientAuth() gin.HandlerFunc {
 		var item APIClient
 		if key == "" || secret == "" || s.DB.Where("client_key = ? AND enabled = ?", key, true).First(&item).Error != nil || bcrypt.CompareHashAndPassword([]byte(item.SecretHash), []byte(secret)) != nil {
 			fail(c, 401, "invalid API client credentials")
+			return
+		}
+		var activeApplications int64
+		s.DB.Model(&Application{}).Where("id = ? AND status = ?", item.AppID, "active").Count(&activeApplications)
+		if activeApplications == 0 {
+			fail(c, 403, "application is disabled or missing")
 			return
 		}
 		if s.Redis != nil && item.RateLimitPerMin > 0 {

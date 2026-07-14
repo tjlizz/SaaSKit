@@ -10,6 +10,7 @@ export namespace AuthApi {
   /** 登录接口返回值 */
   export interface LoginResult {
     accessToken: string;
+    application?: { id: string };
   }
 
   export interface RegisterParams {

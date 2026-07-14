@@ -1,7 +1,18 @@
 import { requestClient } from '#/api/request';
 
+export interface Application {
+  id: string;
+  name: string;
+  app_key: string;
+  description: string;
+  status: 'active' | 'disabled';
+  created_at: string;
+  updated_at: string;
+}
+
 export interface User {
   id: string;
+  app_id: string;
   email: string;
   phone?: string;
   name: string;
@@ -23,6 +34,7 @@ export interface PageResult<T> {
 
 export interface Plan {
   id: string;
+  app_id: string;
   plan_code: string;
   name: string;
   description: string;
@@ -42,6 +54,7 @@ export interface Plan {
 
 export interface Order {
   id: string;
+  app_id: string;
   order_no: string;
   user_id: string;
   user?: User;
@@ -59,6 +72,7 @@ export interface Order {
 
 export interface Subscription {
   id: string;
+  app_id: string;
   user_id: string;
   user?: User;
   plan_id: string;
@@ -75,6 +89,7 @@ export interface Subscription {
 
 export interface ApiClient {
   id: string;
+  app_id: string;
   name: string;
   client_key: string;
   enabled: boolean;
@@ -104,7 +119,33 @@ export type UserInput = Pick<User, 'email' | 'name'> & {
   status?: User['status'];
 };
 
-export type PlanInput = Omit<Plan, 'created_at' | 'id' | 'updated_at'>;
+export type PlanInput = Omit<
+  Plan,
+  'app_id' | 'created_at' | 'id' | 'updated_at'
+>;
+
+export function listApplicationsApi() {
+  return requestClient.get<Application[]>('/admin/applications');
+}
+
+export function createApplicationApi(data: {
+  description?: string;
+  name: string;
+  status?: Application['status'];
+}) {
+  return requestClient.post<Application>('/admin/applications', data);
+}
+
+export function updateApplicationApi(
+  id: string,
+  data: { description?: string; name: string; status: Application['status'] },
+) {
+  return requestClient.put<Application>(`/admin/applications/${id}`, data);
+}
+
+export function deleteApplicationApi(id: string) {
+  return requestClient.delete(`/admin/applications/${id}`);
+}
 
 export function listUsersApi(params: UserQuery = {}) {
   return requestClient.get<PageResult<User>>('/admin/users', { params });

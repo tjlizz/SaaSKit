@@ -74,7 +74,8 @@ func bootstrap(t *testing.T, s *Server) (string, APIClient, string, users.User) 
 	}
 	auth := decode[map[string]any](t, env.Data)
 	token := auth["access_token"].(string)
-	admin := map[string]string{"Authorization": "Bearer " + token}
+	application := auth["application"].(map[string]any)
+	admin := map[string]string{"Authorization": "Bearer " + token, "X-App-ID": application["id"].(string)}
 	status, env = call(t, s, "POST", "/api/admin/api-clients", map[string]any{"name": "Backend"}, admin)
 	if status != 201 {
 		t.Fatalf("client: %d %s", status, env.Message)
@@ -89,6 +90,32 @@ func bootstrap(t *testing.T, s *Server) (string, APIClient, string, users.User) 
 	}
 	user := decode[users.User](t, env.Data)
 	return token, clientResult.Client, clientResult.Secret, user
+}
+
+func TestApplicationsIsolateUsersAndPlanCodes(t *testing.T) {
+	s := testServer(t)
+	token, _, _, firstUser := bootstrap(t, s)
+	baseHeaders := map[string]string{"Authorization": "Bearer " + token}
+	status, env := call(t, s, "POST", "/api/admin/applications", map[string]any{"name": "Second App"}, baseHeaders)
+	if status != http.StatusCreated {
+		t.Fatalf("application: %d %s", status, env.Message)
+	}
+	second := decode[Application](t, env.Data)
+	secondHeaders := map[string]string{"Authorization": "Bearer " + token, "X-App-ID": second.ID}
+	status, env = call(t, s, "POST", "/api/admin/users", map[string]any{"email": firstUser.Email, "password": "password123", "name": "Second User"}, secondHeaders)
+	if status != http.StatusCreated {
+		t.Fatalf("same email in second application: %d %s", status, env.Message)
+	}
+	secondUser := decode[users.User](t, env.Data)
+	if secondUser.AppID != second.ID || secondUser.ID == firstUser.ID {
+		t.Fatalf("unexpected second user: %+v", secondUser)
+	}
+	for _, headers := range []map[string]string{{"Authorization": "Bearer " + token, "X-App-ID": firstUser.AppID}, secondHeaders} {
+		status, env = call(t, s, "POST", "/api/admin/plans", map[string]any{"plan_code": "pro", "name": "Pro", "billing_cycle": "monthly", "price_cents": 9900}, headers)
+		if status != http.StatusCreated {
+			t.Fatalf("same plan code across applications: %d %s", status, env.Message)
+		}
+	}
 }
 
 func TestFreePlanCreatesSubscriptionForOwnedUser(t *testing.T) {

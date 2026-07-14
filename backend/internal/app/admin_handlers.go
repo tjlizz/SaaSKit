@@ -18,7 +18,7 @@ func randomSecret(size int) string {
 
 func (s *Server) listAPIClients(c *gin.Context) {
 	var items []APIClient
-	s.DB.Order("created_at desc").Find(&items)
+	s.DB.Where("app_id = ?", applicationID(c)).Order("created_at desc").Find(&items)
 	ok(c, items)
 }
 func (s *Server) createAPIClient(c *gin.Context) {
@@ -40,7 +40,7 @@ func (s *Server) createAPIClient(c *gin.Context) {
 	if input.RateLimitPerMin <= 0 {
 		input.RateLimitPerMin = 300
 	}
-	item := APIClient{ID: uuid.NewString(), Name: strings.TrimSpace(input.Name), ClientKey: "client_" + randomSecret(16), SecretHash: string(hash), Enabled: enabled, RateLimitPerMin: input.RateLimitPerMin}
+	item := APIClient{ID: uuid.NewString(), AppID: applicationID(c), Name: strings.TrimSpace(input.Name), ClientKey: "client_" + randomSecret(16), SecretHash: string(hash), Enabled: enabled, RateLimitPerMin: input.RateLimitPerMin}
 	if err := s.DB.Create(&item).Error; err != nil {
 		fail(c, 500, "could not create API client")
 		return
@@ -49,7 +49,7 @@ func (s *Server) createAPIClient(c *gin.Context) {
 }
 func (s *Server) updateAPIClient(c *gin.Context) {
 	var item APIClient
-	if s.DB.First(&item, "id = ?", c.Param("id")).Error != nil {
+	if s.DB.Where("id = ? AND app_id = ?", c.Param("id"), applicationID(c)).First(&item).Error != nil {
 		fail(c, 404, "API client not found")
 		return
 	}
@@ -73,11 +73,11 @@ func (s *Server) updateAPIClient(c *gin.Context) {
 		updates["rate_limit_per_min"] = *input.RateLimitPerMin
 	}
 	s.DB.Model(&item).Updates(updates)
-	s.DB.First(&item, "id = ?", item.ID)
+	s.DB.Where("id = ? AND app_id = ?", item.ID, applicationID(c)).First(&item)
 	ok(c, item)
 }
 func (s *Server) deleteAPIClient(c *gin.Context) {
-	result := s.DB.Delete(&APIClient{}, "id = ?", c.Param("id"))
+	result := s.DB.Where("id = ? AND app_id = ?", c.Param("id"), applicationID(c)).Delete(&APIClient{})
 	if result.RowsAffected == 0 {
 		fail(c, 404, "API client not found")
 		return
@@ -86,7 +86,7 @@ func (s *Server) deleteAPIClient(c *gin.Context) {
 }
 func (s *Server) rotateAPIClientSecret(c *gin.Context) {
 	var item APIClient
-	if s.DB.First(&item, "id = ?", c.Param("id")).Error != nil {
+	if s.DB.Where("id = ? AND app_id = ?", c.Param("id"), applicationID(c)).First(&item).Error != nil {
 		fail(c, 404, "API client not found")
 		return
 	}
@@ -100,7 +100,7 @@ var validCycles = map[string]bool{"free": true, "monthly": true, "yearly": true,
 
 func (s *Server) listPlans(c *gin.Context) {
 	var items []Plan
-	s.DB.Order("sort_order asc, created_at desc").Find(&items)
+	s.DB.Where("app_id = ?", applicationID(c)).Order("sort_order asc, created_at desc").Find(&items)
 	ok(c, items)
 }
 func bindPlan(c *gin.Context, item *Plan) bool {
@@ -148,7 +148,7 @@ func bindPlan(c *gin.Context, item *Plan) bool {
 	return true
 }
 func (s *Server) createPlan(c *gin.Context) {
-	item := Plan{ID: uuid.NewString(), Enabled: true, DeviceLimit: 1}
+	item := Plan{ID: uuid.NewString(), AppID: applicationID(c), Enabled: true, DeviceLimit: 1}
 	if !bindPlan(c, &item) {
 		return
 	}
@@ -160,7 +160,7 @@ func (s *Server) createPlan(c *gin.Context) {
 }
 func (s *Server) updatePlan(c *gin.Context) {
 	var item Plan
-	if s.DB.First(&item, "id = ?", c.Param("planId")).Error != nil {
+	if s.DB.Where("id = ? AND app_id = ?", c.Param("planId"), applicationID(c)).First(&item).Error != nil {
 		fail(c, 404, "plan not found")
 		return
 	}
@@ -175,12 +175,12 @@ func (s *Server) updatePlan(c *gin.Context) {
 }
 func (s *Server) deletePlan(c *gin.Context) {
 	var count int64
-	s.DB.Model(&Order{}).Where("plan_id = ?", c.Param("planId")).Count(&count)
+	s.DB.Model(&Order{}).Where("app_id = ? AND plan_id = ?", applicationID(c), c.Param("planId")).Count(&count)
 	if count > 0 {
 		fail(c, 409, "plan with orders cannot be deleted")
 		return
 	}
-	result := s.DB.Delete(&Plan{}, "id = ?", c.Param("planId"))
+	result := s.DB.Where("id = ? AND app_id = ?", c.Param("planId"), applicationID(c)).Delete(&Plan{})
 	if result.RowsAffected == 0 {
 		fail(c, 404, "plan not found")
 		return
@@ -188,7 +188,7 @@ func (s *Server) deletePlan(c *gin.Context) {
 	ok(c, nil)
 }
 func (s *Server) listOrders(c *gin.Context) {
-	query := s.DB.Order("created_at desc")
+	query := s.DB.Where("app_id = ?", applicationID(c)).Order("created_at desc")
 	if userID := strings.TrimSpace(c.Query("user_id")); userID != "" {
 		query = query.Where("user_id = ?", userID)
 	}
@@ -200,7 +200,7 @@ func (s *Server) listOrders(c *gin.Context) {
 	ok(c, items)
 }
 func (s *Server) listSubscriptions(c *gin.Context) {
-	query := s.DB.Preload("Plan").Preload("User").Order("created_at desc")
+	query := s.DB.Where("app_id = ?", applicationID(c)).Preload("Plan").Preload("User").Order("created_at desc")
 	if userID := strings.TrimSpace(c.Query("user_id")); userID != "" {
 		query = query.Where("user_id = ?", userID)
 	}

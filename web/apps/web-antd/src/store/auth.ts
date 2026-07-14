@@ -13,11 +13,26 @@ import { defineStore } from 'pinia';
 import {
   getAccessCodesApi,
   getUserInfoApi,
+  listApplicationsApi,
   loginApi,
   logoutApi,
   registerFirstAdminApi,
 } from '#/api';
 import { $t } from '#/locales';
+import {
+  getCurrentApplicationId,
+  setCurrentApplicationId,
+} from '#/utils/application-context';
+
+async function selectInitialApplication() {
+  const applications = await listApplicationsApi();
+  const current = getCurrentApplicationId();
+  const selected = applications.find(
+    (item) => item.id === current && item.status === 'active',
+  );
+  const first = applications.find((item) => item.status === 'active');
+  setCurrentApplicationId(selected?.id ?? first?.id ?? '');
+}
 
 export const useAuthStore = defineStore('auth', () => {
   const accessStore = useAccessStore();
@@ -44,6 +59,7 @@ export const useAuthStore = defineStore('auth', () => {
       // 如果成功获取到 accessToken
       if (accessToken) {
         accessStore.setAccessToken(accessToken);
+        await selectInitialApplication();
 
         // 获取用户信息并存储到 accessStore 中
         const [fetchUserInfoResult, accessCodes] = await Promise.all([
@@ -86,7 +102,7 @@ export const useAuthStore = defineStore('auth', () => {
   async function registerFirstAdmin(params: Recordable<any>) {
     try {
       loginLoading.value = true;
-      const { accessToken } = await registerFirstAdminApi({
+      const { accessToken, application } = await registerFirstAdminApi({
         email: params.email,
         name: params.name,
         password: params.password,
@@ -96,6 +112,9 @@ export const useAuthStore = defineStore('auth', () => {
       }
 
       accessStore.setAccessToken(accessToken);
+      if (application?.id) {
+        setCurrentApplicationId(application.id);
+      }
       const [userInfo, accessCodes] = await Promise.all([
         fetchUserInfo(),
         getAccessCodesApi(),

@@ -19,9 +19,21 @@ type Admin struct {
 	UpdatedAt    time.Time  `json:"updated_at"`
 }
 
-// APIClient is a server-to-server credential, not a tenant or product.
+// Application is an independently operated SaaS product in this deployment.
+type Application struct {
+	ID          string    `gorm:"primaryKey;size:36" json:"id"`
+	Name        string    `gorm:"size:120;not null" json:"name"`
+	AppKey      string    `gorm:"uniqueIndex;size:64;not null" json:"app_key"`
+	Description string    `gorm:"size:1000" json:"description"`
+	Status      string    `gorm:"index;size:20;not null;default:active" json:"status"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// APIClient is a server-to-server credential bound to one application.
 type APIClient struct {
 	ID              string    `gorm:"primaryKey;size:36" json:"id"`
+	AppID           string    `gorm:"index;size:36;not null" json:"app_id"`
 	Name            string    `gorm:"size:120;not null" json:"name"`
 	ClientKey       string    `gorm:"uniqueIndex;size:64;not null" json:"client_key"`
 	SecretHash      string    `json:"-"`
@@ -33,7 +45,8 @@ type APIClient struct {
 
 type Plan struct {
 	ID                 string    `gorm:"primaryKey;size:36" json:"id"`
-	PlanCode           string    `gorm:"uniqueIndex;size:80;not null" json:"plan_code"`
+	AppID              string    `gorm:"uniqueIndex:ux_product_plans_app_code;size:36;not null" json:"app_id"`
+	PlanCode           string    `gorm:"uniqueIndex:ux_product_plans_app_code;size:80;not null" json:"plan_code"`
 	Name               string    `gorm:"size:120;not null" json:"name"`
 	Description        string    `gorm:"size:1000" json:"description"`
 	BillingCycle       string    `gorm:"size:32;not null" json:"billing_cycle"`
@@ -54,6 +67,7 @@ func (Plan) TableName() string { return "product_plans" }
 
 type Order struct {
 	ID              string     `gorm:"primaryKey;size:36" json:"id"`
+	AppID           string     `gorm:"index;size:36;not null" json:"app_id"`
 	OrderNo         string     `gorm:"uniqueIndex;size:64;not null" json:"order_no"`
 	UserID          string     `gorm:"index;size:36;not null" json:"user_id"`
 	User            users.User `gorm:"foreignKey:UserID" json:"user,omitempty"`
@@ -73,7 +87,8 @@ func (Order) TableName() string { return "billing_orders" }
 
 type Subscription struct {
 	ID                 string     `gorm:"primaryKey;size:36" json:"id"`
-	UserID             string     `gorm:"uniqueIndex;size:36;not null" json:"user_id"`
+	AppID              string     `gorm:"uniqueIndex:ux_subscriptions_app_user;size:36;not null" json:"app_id"`
+	UserID             string     `gorm:"uniqueIndex:ux_subscriptions_app_user;size:36;not null" json:"user_id"`
 	User               users.User `gorm:"foreignKey:UserID" json:"user,omitempty"`
 	PlanID             string     `gorm:"index;size:36;not null" json:"plan_id"`
 	OrderID            string     `gorm:"index;size:36;not null" json:"order_id"`
@@ -102,5 +117,5 @@ type PaymentConfig struct {
 func (PaymentConfig) TableName() string { return "merchant_payment_configs" }
 
 func Models() []any {
-	return []any{&Admin{}, &APIClient{}, &users.User{}, &Plan{}, &Order{}, &Subscription{}, &PaymentConfig{}}
+	return []any{&Admin{}, &Application{}, &APIClient{}, &users.User{}, &Plan{}, &Order{}, &Subscription{}, &PaymentConfig{}}
 }
