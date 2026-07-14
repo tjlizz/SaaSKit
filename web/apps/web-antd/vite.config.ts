@@ -1,6 +1,7 @@
 import { fileURLToPath } from 'node:url';
 
 import { defineConfig } from '@vben/vite-config';
+
 import { loadEnv } from 'vite';
 
 export default defineConfig(async ({ mode }) => {

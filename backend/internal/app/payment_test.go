@@ -34,6 +34,17 @@ func TestPaymentConfigEncryptionRoundTrip(t *testing.T) {
 	}
 }
 
+func TestMergePaymentConfigPreservesBlankSecretFields(t *testing.T) {
+	stored := map[string]string{"app_id": "old-app", "private_key": "old-secret"}
+	merged := mergePaymentConfig(stored, map[string]string{
+		"app_id":      " new-app ",
+		"private_key": "   ",
+	})
+	if merged["app_id"] != "new-app" || merged["private_key"] != "old-secret" {
+		t.Fatalf("unexpected merged config: %#v", merged)
+	}
+}
+
 func TestPeriodEnd(t *testing.T) {
 	start := time.Date(2026, 1, 15, 0, 0, 0, 0, time.UTC)
 	if got := periodEnd(start, "monthly"); !got.Equal(time.Date(2026, 2, 15, 0, 0, 0, 0, time.UTC)) {

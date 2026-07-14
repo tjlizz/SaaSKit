@@ -19,6 +19,20 @@ func (s *Server) listPaymentConfigs(c *gin.Context) {
 	}
 	ok(c, result)
 }
+
+func mergePaymentConfig(stored, submitted map[string]string) map[string]string {
+	merged := make(map[string]string, len(stored)+len(submitted))
+	for key, value := range stored {
+		merged[key] = value
+	}
+	for key, value := range submitted {
+		if value = strings.TrimSpace(value); value != "" {
+			merged[key] = value
+		}
+	}
+	return merged
+}
+
 func (s *Server) savePaymentConfig(c *gin.Context) {
 	provider := c.Param("provider")
 	if provider != "alipay" && provider != "wechat" {
@@ -34,9 +48,24 @@ func (s *Server) savePaymentConfig(c *gin.Context) {
 		fail(c, 400, "invalid request body")
 		return
 	}
-	for key, value := range input.Config {
-		input.Config[key] = strings.TrimSpace(value)
+	var existing PaymentConfig
+	findErr := s.DB.Where("provider = ?", provider).First(&existing).Error
+	if findErr != nil && !errors.Is(findErr, gorm.ErrRecordNotFound) {
+		fail(c, 500, "could not read payment config")
+		return
 	}
+	stored := map[string]string{}
+	if findErr == nil && existing.Ciphertext != "" {
+		decrypted, err := decryptConfig(s.Config.PaymentKey, existing.Ciphertext)
+		if err != nil {
+			fail(c, 500, "payment config cannot be decrypted")
+			return
+		}
+		stored = decrypted
+	}
+	// Secret fields are never returned to the browser. Empty submitted values
+	// therefore mean "keep the stored value" rather than "erase the secret".
+	merged := mergePaymentConfig(stored, input.Config)
 	if input.Enabled {
 		required := []string{"app_id", "private_key"}
 		if provider == "alipay" {
@@ -45,22 +74,26 @@ func (s *Server) savePaymentConfig(c *gin.Context) {
 			required = append(required, "mch_id", "serial_no", "api_v3_key", "platform_public_key")
 		}
 		for _, key := range required {
-			if input.Config[key] == "" {
+			if merged[key] == "" {
 				fail(c, 400, key+" is required when enabled")
 				return
 			}
 		}
 	}
-	input.Config["sandbox"] = "false"
+	merged["sandbox"] = "false"
 	if input.Sandbox {
-		input.Config["sandbox"] = "true"
+		merged["sandbox"] = "true"
 	}
-	ciphertext, err := encryptConfig(s.Config.PaymentKey, input.Config)
+	ciphertext, err := encryptConfig(s.Config.PaymentKey, merged)
 	if err != nil {
 		fail(c, 500, "could not encrypt payment config")
 		return
 	}
-	item := PaymentConfig{ID: uuid.NewString(), Provider: provider, Enabled: input.Enabled, Sandbox: input.Sandbox, Ciphertext: ciphertext}
+	id := existing.ID
+	if id == "" {
+		id = uuid.NewString()
+	}
+	item := PaymentConfig{ID: id, Provider: provider, Enabled: input.Enabled, Sandbox: input.Sandbox, Ciphertext: ciphertext}
 	err = s.DB.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "provider"}}, DoUpdates: clause.AssignmentColumns([]string{"enabled", "sandbox", "ciphertext", "updated_at"})}).Create(&item).Error
 	if err != nil {
 		fail(c, 500, "could not save payment config")
