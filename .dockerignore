@@ -1,0 +1,5 @@
+.git
+web
+plans
+backend/.cache
+backend/*.db

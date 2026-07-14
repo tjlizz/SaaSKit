@@ -1,0 +1,188 @@
+openapi: 3.1.0
+info:
+  title: SaaSKit Single-Product API
+  version: 0.2.0
+  description: Self-hosted, single-product SaaS user, billing, payment and subscription API. No tenant or cloud-platform boundary exists.
+servers: [{url: http://localhost:8080/api}]
+tags: [{name: AdminAuth}, {name: UserAuth}, {name: Users}, {name: APIClients}, {name: Plans}, {name: Billing}, {name: Payments}]
+paths:
+  /auth/login:
+    post:
+      tags: [AdminAuth]
+      summary: Vben-compatible administrator login
+      description: On an empty database, the first valid email and 8-character password initialize the administrator.
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [username, password], properties: {username: {type: string}, password: {type: string, minLength: 8}}}}}}
+      responses: {'200': {description: Envelope containing data.accessToken}, '201': {description: First administrator initialized}, '401': {$ref: '#/components/responses/Error'}}
+  /auth/refresh:
+    post: {tags: [AdminAuth], summary: Vben-compatible token refresh, responses: {'200': {description: Refreshed token}}}
+  /auth/logout:
+    post: {tags: [AdminAuth], summary: Vben-compatible logout, responses: {'200': {description: Logged out}}}
+  /auth/codes:
+    get: {tags: [AdminAuth], security: [{adminBearer: []}], summary: Vben access codes, responses: {'200': {description: Access code list}}}
+  /user/info:
+    get: {tags: [AdminAuth], security: [{adminBearer: []}], summary: Vben-compatible administrator profile, responses: {'200': {description: Vben UserInfo}}}
+  /menu/all:
+    get: {tags: [AdminAuth], security: [{adminBearer: []}], summary: Vben backend menu compatibility endpoint, responses: {'200': {description: Menu list}}}
+  /admin-auth/bootstrap:
+    post:
+      tags: [AdminAuth]
+      summary: Create the first administrator; available only while no admin exists
+      requestBody: {$ref: '#/components/requestBodies/AdminCredentials'}
+      responses: {'201': {description: Admin and access token}, '409': {$ref: '#/components/responses/Error'}}
+  /admin-auth/login:
+    post:
+      tags: [AdminAuth]
+      summary: Administrator login
+      requestBody: {$ref: '#/components/requestBodies/AdminCredentials'}
+      responses: {'200': {description: Admin and access token}, '401': {$ref: '#/components/responses/Error'}}
+  /admin-auth/refresh:
+    post: {tags: [AdminAuth], summary: Refresh administrator access token from HttpOnly cookie, responses: {'200': {description: Access token}, '401': {$ref: '#/components/responses/Error'}}}
+  /admin-auth/logout:
+    post: {tags: [AdminAuth], summary: Clear administrator refresh cookie, responses: {'200': {description: Logged out}}}
+  /user-auth/register:
+    post:
+      tags: [UserAuth]
+      summary: Register a first-party SaaS user
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/UserCreate'}}}}
+      responses: {'201': {description: User and user access token}, '403': {$ref: '#/components/responses/Error'}, '409': {$ref: '#/components/responses/Error'}}
+  /user-auth/login:
+    post:
+      tags: [UserAuth]
+      summary: SaaS user login
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [email, password], properties: {email: {type: string, format: email}, password: {type: string}}}}}}
+      responses: {'200': {description: User and user access token}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}}
+  /account/profile:
+    get: {tags: [UserAuth], security: [{userBearer: []}], summary: Get current user profile, responses: {'200': {description: User profile}}}
+    put:
+      tags: [UserAuth]
+      security: [{userBearer: []}]
+      summary: Update current user profile
+      requestBody: {required: true, content: {application/json: {schema: {type: object, properties: {name: {type: string}, phone: {type: string}, avatar_url: {type: string}}}}}}
+      responses: {'200': {description: Updated user}}
+  /account/password:
+    put:
+      tags: [UserAuth]
+      security: [{userBearer: []}]
+      summary: Change current user password
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [current_password, new_password], properties: {current_password: {type: string}, new_password: {type: string, minLength: 8}}}}}}
+      responses: {'200': {description: Password changed}, '401': {$ref: '#/components/responses/Error'}}
+  /account/orders:
+    get: {tags: [Billing], security: [{userBearer: []}], summary: List the current user's orders, responses: {'200': {description: Order list}}}
+  /account/subscription:
+    get: {tags: [Billing], security: [{userBearer: []}], summary: Get the current user's subscription, responses: {'200': {description: Subscription validity and plan}}}
+  /admin/me:
+    get: {tags: [AdminAuth], security: [{adminBearer: []}], summary: Current administrator, responses: {'200': {description: Admin profile}}}
+  /admin/users:
+    get:
+      tags: [Users]
+      security: [{adminBearer: []}]
+      summary: Search and paginate owned users
+      parameters: [{name: q, in: query, schema: {type: string}}, {name: status, in: query, schema: {type: string, enum: [active, disabled]}}, {name: page, in: query, schema: {type: integer, minimum: 1}}, {name: page_size, in: query, schema: {type: integer, minimum: 1, maximum: 100}}]
+      responses: {'200': {description: Paginated users}}
+    post:
+      tags: [Users]
+      security: [{adminBearer: []}]
+      summary: Create user from administration
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/UserCreate'}}}}
+      responses: {'201': {description: Created user}, '409': {$ref: '#/components/responses/Error'}}
+  /admin/users/{userId}:
+    parameters: [{$ref: '#/components/parameters/UserId'}]
+    get: {tags: [Users], security: [{adminBearer: []}], summary: Get user, responses: {'200': {description: User}, '404': {$ref: '#/components/responses/Error'}}}
+    put:
+      tags: [Users]
+      security: [{adminBearer: []}]
+      summary: Update user identity and verification fields
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/UserUpdate'}}}}
+      responses: {'200': {description: Updated user}, '409': {$ref: '#/components/responses/Error'}}
+    delete: {tags: [Users], security: [{adminBearer: []}], summary: Soft-delete a user without orders, responses: {'200': {description: Deleted}, '409': {$ref: '#/components/responses/Error'}}}
+  /admin/users/{userId}/status:
+    parameters: [{$ref: '#/components/parameters/UserId'}]
+    put:
+      tags: [Users]
+      security: [{adminBearer: []}]
+      summary: Enable or disable user login
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [status], properties: {status: {type: string, enum: [active, disabled]}}}}}}
+      responses: {'200': {description: Updated user}}
+  /admin/users/{userId}/password:
+    parameters: [{$ref: '#/components/parameters/UserId'}]
+    put:
+      tags: [Users]
+      security: [{adminBearer: []}]
+      summary: Reset user password
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [password], properties: {password: {type: string, minLength: 8}}}}}}
+      responses: {'200': {description: Password reset}}
+  /admin/api-clients:
+    get: {tags: [APIClients], security: [{adminBearer: []}], summary: List server API credentials, responses: {'200': {description: API client list}}}
+    post:
+      tags: [APIClients]
+      security: [{adminBearer: []}]
+      summary: Create API credential; client_secret is shown once
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/APIClientInput'}}}}
+      responses: {'201': {description: Client and one-time secret}}
+  /admin/api-clients/{clientId}:
+    parameters: [{$ref: '#/components/parameters/ClientId'}]
+    put: {tags: [APIClients], security: [{adminBearer: []}], summary: Update API credential, requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/APIClientInput'}}}}, responses: {'200': {description: Updated client}}}
+    delete: {tags: [APIClients], security: [{adminBearer: []}], summary: Delete API credential, responses: {'200': {description: Deleted}}}
+  /admin/api-clients/{clientId}/rotate-secret:
+    parameters: [{$ref: '#/components/parameters/ClientId'}]
+    post: {tags: [APIClients], security: [{adminBearer: []}], summary: Rotate and return one-time client_secret, responses: {'200': {description: New secret}}}
+  /admin/plans:
+    get: {tags: [Plans], security: [{adminBearer: []}], summary: List global plans, responses: {'200': {description: Plan list}}}
+    post: {tags: [Plans], security: [{adminBearer: []}], summary: Create global plan, requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/PlanInput'}}}}, responses: {'201': {description: Created plan}}}
+  /admin/plans/{planId}:
+    parameters: [{$ref: '#/components/parameters/PlanId'}]
+    put: {tags: [Plans], security: [{adminBearer: []}], summary: Replace plan, requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/PlanInput'}}}}, responses: {'200': {description: Updated plan}}}
+    delete: {tags: [Plans], security: [{adminBearer: []}], summary: Delete unused plan, responses: {'200': {description: Deleted}, '409': {$ref: '#/components/responses/Error'}}}
+  /admin/orders:
+    get: {tags: [Billing], security: [{adminBearer: []}], summary: List orders, parameters: [{name: user_id, in: query, schema: {type: string, format: uuid}}, {name: status, in: query, schema: {type: string}}], responses: {'200': {description: Order list}}}
+  /admin/orders/{orderId}/status:
+    parameters: [{name: orderId, in: path, required: true, schema: {type: string, format: uuid}}]
+    put: {tags: [Billing], security: [{adminBearer: []}], summary: Mark pending order cancelled or paid order refunded, requestBody: {required: true, content: {application/json: {schema: {type: object, required: [status], properties: {status: {type: string, enum: [cancelled, refunded]}}}}}}, responses: {'200': {description: Updated order}}}
+  /admin/subscriptions:
+    get: {tags: [Billing], security: [{adminBearer: []}], summary: List subscriptions, parameters: [{name: user_id, in: query, schema: {type: string, format: uuid}}], responses: {'200': {description: Subscription list}}}
+  /admin/payment-configs:
+    get: {tags: [Payments], security: [{adminBearer: []}], summary: List masked merchant configuration status, responses: {'200': {description: Config status}}}
+  /admin/payment-configs/{provider}:
+    parameters: [{$ref: '#/components/parameters/Provider'}]
+    put: {tags: [Payments], security: [{adminBearer: []}], summary: Encrypt and save the instance merchant configuration, requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/PaymentConfigInput'}}}}, responses: {'200': {description: Saved}}}
+  /client/orders:
+    post:
+      tags: [Billing]
+      security: [{apiKey: [], apiSecret: []}]
+      summary: Create order for an owned user
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreateOrder'}}}}
+      responses: {'201': {description: Order and payment instructions}, '404': {$ref: '#/components/responses/Error'}}
+  /client/orders/{orderNo}:
+    parameters: [{name: orderNo, in: path, required: true, schema: {type: string}}]
+    get: {tags: [Billing], security: [{apiKey: [], apiSecret: []}], summary: Query local order, responses: {'200': {description: Order}}}
+  /client/orders/{orderNo}/provider-status:
+    parameters: [{name: orderNo, in: path, required: true, schema: {type: string}}]
+    get: {tags: [Billing], security: [{apiKey: [], apiSecret: []}], summary: Query upstream payment status, responses: {'200': {description: Local and provider status}}}
+  /client/subscription/check:
+    get: {tags: [Billing], security: [{apiKey: [], apiSecret: []}], summary: Check subscription by internal user UUID, parameters: [{name: user_id, in: query, required: true, schema: {type: string, format: uuid}}], responses: {'200': {description: Validity, plan and expiration}}}
+  /payments/{provider}/notify:
+    parameters: [{$ref: '#/components/parameters/Provider'}]
+    post: {tags: [Payments], summary: Provider-signed asynchronous payment callback, responses: {'200': {description: Provider-specific acknowledgement}, '400': {description: Signature or payload rejected}}}
+components:
+  securitySchemes:
+    adminBearer: {type: http, scheme: bearer, bearerFormat: JWT}
+    userBearer: {type: http, scheme: bearer, bearerFormat: JWT}
+    apiKey: {type: apiKey, in: header, name: X-API-Key}
+    apiSecret: {type: apiKey, in: header, name: X-API-Secret}
+  parameters:
+    UserId: {name: userId, in: path, required: true, schema: {type: string, format: uuid}}
+    ClientId: {name: clientId, in: path, required: true, schema: {type: string, format: uuid}}
+    PlanId: {name: planId, in: path, required: true, schema: {type: string, format: uuid}}
+    Provider: {name: provider, in: path, required: true, schema: {type: string, enum: [alipay, wechat]}}
+  requestBodies:
+    AdminCredentials: {required: true, content: {application/json: {schema: {type: object, required: [email, password], properties: {email: {type: string, format: email}, password: {type: string, minLength: 8}, name: {type: string}}}}}}
+  responses:
+    Error: {description: Error envelope, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorEnvelope'}}}}
+  schemas:
+    ErrorEnvelope: {type: object, required: [code, message], properties: {code: {type: integer}, message: {type: string}}}
+    UserCreate: {type: object, required: [email, password], properties: {email: {type: string, format: email}, password: {type: string, minLength: 8}, name: {type: string}, phone: {type: string}, status: {type: string, enum: [active, disabled]}}}
+    UserUpdate: {type: object, properties: {email: {type: string, format: email}, name: {type: string}, phone: {type: string}, avatar_url: {type: string}, email_verified: {type: boolean}, phone_verified: {type: boolean}}}
+    APIClientInput: {type: object, required: [name], properties: {name: {type: string}, enabled: {type: boolean}, rate_limit_per_min: {type: integer, minimum: 1}}}
+    PlanInput: {type: object, required: [plan_code, name, billing_cycle, price_cents], properties: {plan_code: {type: string}, name: {type: string}, description: {type: string}, billing_cycle: {type: string, enum: [free, monthly, yearly, lifetime, one_time]}, price_cents: {type: integer, minimum: 0}, currency: {type: string, default: CNY}, enabled: {type: boolean}, device_limit: {type: integer}, credit_quota: {type: integer}, seat_limit: {type: integer}, sort_order: {type: integer}}}
+    PaymentConfigInput: {type: object, required: [enabled, config], properties: {enabled: {type: boolean}, sandbox: {type: boolean}, config: {type: object, additionalProperties: {type: string}}}}
+    CreateOrder: {type: object, required: [plan_code, user_id], properties: {plan_code: {type: string}, user_id: {type: string, format: uuid}, provider: {type: string, enum: [alipay, wechat]}, channel: {type: string, enum: [page, qr]}, return_url: {type: string, format: uri}, quantity: {type: integer, minimum: 1}, request_id: {type: string}}}
