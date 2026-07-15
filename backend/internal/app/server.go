@@ -104,6 +104,10 @@ func NewServer(db *gorm.DB, redisClient *redis.Client, cfg Config) (*Server, err
 		},
 	}
 	userHandler.Register(api, appAdmin, s.publicApplicationContext())
+	// Public endpoints for external website integration (requires X-App-Key header)
+	publicAPI := api.Group("/public")
+	publicAPI.Use(s.publicApplicationContext())
+	publicAPI.GET("/plans", s.listPublicPlans)
 	accountBilling := api.Group("/account")
 	accountBilling.Use(userHandler.UserAuth())
 	accountBilling.GET("/orders", s.listAccountOrders)

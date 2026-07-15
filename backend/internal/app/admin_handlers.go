@@ -103,6 +103,11 @@ func (s *Server) listPlans(c *gin.Context) {
 	s.DB.Where("app_id = ?", applicationID(c)).Order("sort_order asc, created_at desc").Find(&items)
 	ok(c, items)
 }
+func (s *Server) listPublicPlans(c *gin.Context) {
+	var items []Plan
+	s.DB.Where("app_id = ? AND enabled = ?", applicationID(c), true).Order("sort_order asc, created_at desc").Find(&items)
+	ok(c, items)
+}
 func bindPlan(c *gin.Context, item *Plan) bool {
 	var input struct {
 		PlanCode           string `json:"plan_code"`
