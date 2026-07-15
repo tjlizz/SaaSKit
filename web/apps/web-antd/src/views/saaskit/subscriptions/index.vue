@@ -1,18 +1,29 @@
 <script lang="ts" setup>
-import type { Subscription } from '#/api';
+import type { Application, Subscription } from '#/api';
 
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 
 import { Page } from '@vben/common-ui';
 
-import { Button, Card, Input, Table, Tag } from 'ant-design-vue';
+import { Button, Card, Input, Select, Table, Tag } from 'ant-design-vue';
 
-import { listSubscriptionsApi } from '#/api';
+import { listApplicationsApi, listSubscriptionsApi } from '#/api';
+import {
+  getCurrentApplicationId,
+  setCurrentApplicationId,
+} from '#/utils/application-context';
 
 import { formatDate, statusColors, statusLabels } from '../shared';
 
 const loading = ref(false);
 const items = ref<Subscription[]>([]);
+const applications = ref<Application[]>([]);
+const selectedAppId = ref(getCurrentApplicationId());
+const appOptions = computed(() =>
+  applications.value
+    .filter((a) => a.status === 'active')
+    .map((a) => ({ label: a.name, value: a.id })),
+);
 const userId = ref('');
 const columns = [
   { key: 'user', title: '用户' },
@@ -36,6 +47,12 @@ const columns = [
 async function load() {
   loading.value = true;
   try {
+    applications.value = await listApplicationsApi();
+    const active = applications.value.filter((a) => a.status === 'active');
+    if (!active.some((a) => a.id === selectedAppId.value)) {
+      selectedAppId.value = active[0]?.id ?? '';
+      setCurrentApplicationId(selectedAppId.value);
+    }
     items.value = await listSubscriptionsApi({
       user_id: userId.value || undefined,
     });
@@ -44,13 +61,26 @@ async function load() {
   }
 }
 
+function switchApp(id: string) {
+  selectedAppId.value = id;
+  setCurrentApplicationId(id);
+  load();
+}
+
 onMounted(load);
 </script>
 
 <template>
   <Page description="查看用户当前生效的套餐、有效期和剩余额度" title="订阅管理">
     <Card>
-      <div class="mb-4 flex gap-3">
+      <div class="mb-4 flex items-center gap-3">
+        <Select
+          :options="appOptions"
+          :value="selectedAppId || undefined"
+          class="w-44"
+          placeholder="请选择应用"
+          @change="switchApp"
+        />
         <Input
           v-model:value="userId"
           allow-clear

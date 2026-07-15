@@ -1,7 +1,7 @@
 <script lang="ts" setup>
-import type { Order } from '#/api';
+import type { Application, Order } from '#/api';
 
-import { onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref } from 'vue';
 
 import { Page } from '@vben/common-ui';
 
@@ -17,7 +17,11 @@ import {
   Tag,
 } from 'ant-design-vue';
 
-import { listOrdersApi, updateOrderStatusApi } from '#/api';
+import { listApplicationsApi, listOrdersApi, updateOrderStatusApi } from '#/api';
+import {
+  getCurrentApplicationId,
+  setCurrentApplicationId,
+} from '#/utils/application-context';
 
 import {
   formatDate,
@@ -29,6 +33,13 @@ import {
 
 const loading = ref(false);
 const items = ref<Order[]>([]);
+const applications = ref<Application[]>([]);
+const selectedAppId = ref(getCurrentApplicationId());
+const appOptions = computed(() =>
+  applications.value
+    .filter((a) => a.status === 'active')
+    .map((a) => ({ label: a.name, value: a.id })),
+);
 const query = reactive({ status: '', user_id: '' });
 const columns = [
   { dataIndex: 'order_no', key: 'order_no', title: '订单号' },
@@ -43,6 +54,12 @@ const columns = [
 async function load() {
   loading.value = true;
   try {
+    applications.value = await listApplicationsApi();
+    const active = applications.value.filter((a) => a.status === 'active');
+    if (!active.some((a) => a.id === selectedAppId.value)) {
+      selectedAppId.value = active[0]?.id ?? '';
+      setCurrentApplicationId(selectedAppId.value);
+    }
     items.value = await listOrdersApi({
       status: query.status || undefined,
       user_id: query.user_id || undefined,
@@ -50,6 +67,12 @@ async function load() {
   } finally {
     loading.value = false;
   }
+}
+
+function switchApp(id: string) {
+  selectedAppId.value = id;
+  setCurrentApplicationId(id);
+  load();
 }
 
 function changeStatus(
@@ -83,7 +106,14 @@ onMounted(load);
     title="订单管理"
   >
     <Card>
-      <div class="mb-4 flex flex-wrap gap-3">
+      <div class="mb-4 flex flex-wrap items-center gap-3">
+        <Select
+          :options="appOptions"
+          :value="selectedAppId || undefined"
+          class="w-44"
+          placeholder="请选择应用"
+          @change="switchApp"
+        />
         <Input
           v-model:value="query.user_id"
           allow-clear

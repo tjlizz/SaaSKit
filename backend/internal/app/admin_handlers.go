@@ -114,7 +114,6 @@ func bindPlan(c *gin.Context, item *Plan) bool {
 		AutoRenewSupported bool   `json:"auto_renew_supported"`
 		DeviceLimit        int    `json:"device_limit"`
 		CreditQuota        int64  `json:"credit_quota"`
-		SeatLimit          int    `json:"seat_limit"`
 		Recommended        bool   `json:"recommended"`
 		Enabled            *bool  `json:"enabled"`
 		SortOrder          int    `json:"sort_order"`
@@ -139,7 +138,6 @@ func bindPlan(c *gin.Context, item *Plan) bool {
 	item.AutoRenewSupported = input.AutoRenewSupported
 	item.DeviceLimit = input.DeviceLimit
 	item.CreditQuota = input.CreditQuota
-	item.SeatLimit = input.SeatLimit
 	item.Recommended = input.Recommended
 	if input.Enabled != nil {
 		item.Enabled = *input.Enabled

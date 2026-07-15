@@ -67,7 +67,7 @@ func decode[T any](t *testing.T, raw json.RawMessage) T {
 	}
 	return value
 }
-func bootstrap(t *testing.T, s *Server) (string, APIClient, string, users.User) {
+func bootstrap(t *testing.T, s *Server) (string, string, APIClient, string, users.User) {
 	status, env := call(t, s, "POST", "/api/admin-auth/bootstrap", map[string]any{"email": "admin@example.com", "password": "password123", "name": "Admin"}, nil)
 	if status != 201 {
 		t.Fatalf("bootstrap: %d %s", status, env.Message)
@@ -75,8 +75,9 @@ func bootstrap(t *testing.T, s *Server) (string, APIClient, string, users.User) 
 	auth := decode[map[string]any](t, env.Data)
 	token := auth["access_token"].(string)
 	application := auth["application"].(map[string]any)
-	admin := map[string]string{"Authorization": "Bearer " + token, "X-App-ID": application["id"].(string)}
-	status, env = call(t, s, "POST", "/api/admin/api-clients", map[string]any{"name": "Backend"}, admin)
+	appID := application["id"].(string)
+	admin := map[string]string{"Authorization": "Bearer " + token}
+	status, env = call(t, s, "POST", "/api/admin/applications/"+appID+"/api-clients", map[string]any{"name": "Backend"}, admin)
 	if status != 201 {
 		t.Fatalf("client: %d %s", status, env.Message)
 	}
@@ -84,25 +85,24 @@ func bootstrap(t *testing.T, s *Server) (string, APIClient, string, users.User) 
 		Client APIClient `json:"client"`
 		Secret string    `json:"client_secret"`
 	}](t, env.Data)
-	status, env = call(t, s, "POST", "/api/admin/users", map[string]any{"email": "user@example.com", "password": "password123", "name": "User"}, admin)
+	status, env = call(t, s, "POST", "/api/admin/applications/"+appID+"/users", map[string]any{"email": "user@example.com", "password": "password123", "name": "User"}, admin)
 	if status != 201 {
 		t.Fatalf("user: %d %s", status, env.Message)
 	}
 	user := decode[users.User](t, env.Data)
-	return token, clientResult.Client, clientResult.Secret, user
+	return token, appID, clientResult.Client, clientResult.Secret, user
 }
 
 func TestApplicationsIsolateUsersAndPlanCodes(t *testing.T) {
 	s := testServer(t)
-	token, _, _, firstUser := bootstrap(t, s)
+	token, firstAppID, _, _, firstUser := bootstrap(t, s)
 	baseHeaders := map[string]string{"Authorization": "Bearer " + token}
 	status, env := call(t, s, "POST", "/api/admin/applications", map[string]any{"name": "Second App"}, baseHeaders)
 	if status != http.StatusCreated {
 		t.Fatalf("application: %d %s", status, env.Message)
 	}
 	second := decode[Application](t, env.Data)
-	secondHeaders := map[string]string{"Authorization": "Bearer " + token, "X-App-ID": second.ID}
-	status, env = call(t, s, "POST", "/api/admin/users", map[string]any{"email": firstUser.Email, "password": "password123", "name": "Second User"}, secondHeaders)
+	status, env = call(t, s, "POST", "/api/admin/applications/"+second.ID+"/users", map[string]any{"email": firstUser.Email, "password": "password123", "name": "Second User"}, baseHeaders)
 	if status != http.StatusCreated {
 		t.Fatalf("same email in second application: %d %s", status, env.Message)
 	}
@@ -110,8 +110,8 @@ func TestApplicationsIsolateUsersAndPlanCodes(t *testing.T) {
 	if secondUser.AppID != second.ID || secondUser.ID == firstUser.ID {
 		t.Fatalf("unexpected second user: %+v", secondUser)
 	}
-	for _, headers := range []map[string]string{{"Authorization": "Bearer " + token, "X-App-ID": firstUser.AppID}, secondHeaders} {
-		status, env = call(t, s, "POST", "/api/admin/plans", map[string]any{"plan_code": "pro", "name": "Pro", "billing_cycle": "monthly", "price_cents": 9900}, headers)
+	for _, appID := range []string{firstAppID, second.ID} {
+		status, env = call(t, s, "POST", "/api/admin/applications/"+appID+"/plans", map[string]any{"plan_code": "pro", "name": "Pro", "billing_cycle": "monthly", "price_cents": 9900}, baseHeaders)
 		if status != http.StatusCreated {
 			t.Fatalf("same plan code across applications: %d %s", status, env.Message)
 		}
@@ -120,9 +120,9 @@ func TestApplicationsIsolateUsersAndPlanCodes(t *testing.T) {
 
 func TestFreePlanCreatesSubscriptionForOwnedUser(t *testing.T) {
 	s := testServer(t)
-	token, client, secret, user := bootstrap(t, s)
+	token, appID, client, secret, user := bootstrap(t, s)
 	admin := map[string]string{"Authorization": "Bearer " + token}
-	status, env := call(t, s, "POST", "/api/admin/plans", map[string]any{"plan_code": "free", "name": "Free", "billing_cycle": "free", "price_cents": 0, "enabled": true}, admin)
+	status, env := call(t, s, "POST", "/api/admin/applications/"+appID+"/plans", map[string]any{"plan_code": "free", "name": "Free", "billing_cycle": "free", "price_cents": 0, "enabled": true}, admin)
 	if status != 201 {
 		t.Fatalf("plan: %d %s", status, env.Message)
 	}
@@ -148,9 +148,9 @@ func TestFreePlanCreatesSubscriptionForOwnedUser(t *testing.T) {
 
 func TestMockNotifyIsIdempotent(t *testing.T) {
 	s := testServer(t)
-	token, client, secret, user := bootstrap(t, s)
+	token, appID, client, secret, user := bootstrap(t, s)
 	admin := map[string]string{"Authorization": "Bearer " + token}
-	call(t, s, "POST", "/api/admin/plans", map[string]any{"plan_code": "pro", "name": "Pro", "billing_cycle": "monthly", "price_cents": 9900, "enabled": true}, admin)
+	call(t, s, "POST", "/api/admin/applications/"+appID+"/plans", map[string]any{"plan_code": "pro", "name": "Pro", "billing_cycle": "monthly", "price_cents": 9900, "enabled": true}, admin)
 	apiHeaders := map[string]string{"X-API-Key": client.ClientKey, "X-API-Secret": secret}
 	status, env := call(t, s, "POST", "/api/client/orders", map[string]any{"plan_code": "pro", "user_id": user.ID, "provider": "alipay"}, apiHeaders)
 	if status != 201 {
@@ -178,7 +178,7 @@ func TestMockNotifyIsIdempotent(t *testing.T) {
 
 func TestRejectsInvalidAPISecret(t *testing.T) {
 	s := testServer(t)
-	_, client, _, user := bootstrap(t, s)
+	_, _, client, _, user := bootstrap(t, s)
 	status, _ := call(t, s, "GET", "/api/client/subscription/check?user_id="+user.ID, nil, map[string]string{"X-API-Key": client.ClientKey, "X-API-Secret": "wrong"})
 	if status != http.StatusUnauthorized {
 		t.Fatalf("want 401, got %d", status)

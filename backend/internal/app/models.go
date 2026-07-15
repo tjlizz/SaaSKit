@@ -45,7 +45,7 @@ type APIClient struct {
 
 type Plan struct {
 	ID                 string    `gorm:"primaryKey;size:36" json:"id"`
-	AppID              string    `gorm:"uniqueIndex:ux_product_plans_app_code;size:36;not null" json:"app_id"`
+	AppID              string    `gorm:"uniqueIndex:ux_product_plans_app_code;size:36;not null;default:''" json:"app_id"`
 	PlanCode           string    `gorm:"uniqueIndex:ux_product_plans_app_code;size:80;not null" json:"plan_code"`
 	Name               string    `gorm:"size:120;not null" json:"name"`
 	Description        string    `gorm:"size:1000" json:"description"`
@@ -55,7 +55,6 @@ type Plan struct {
 	AutoRenewSupported bool      `json:"auto_renew_supported"`
 	DeviceLimit        int       `gorm:"default:1" json:"device_limit"`
 	CreditQuota        int64     `json:"credit_quota"`
-	SeatLimit          int       `json:"seat_limit"`
 	Recommended        bool      `json:"recommended"`
 	Enabled            bool      `gorm:"not null" json:"enabled"`
 	SortOrder          int       `json:"sort_order"`
@@ -67,7 +66,7 @@ func (Plan) TableName() string { return "product_plans" }
 
 type Order struct {
 	ID              string     `gorm:"primaryKey;size:36" json:"id"`
-	AppID           string     `gorm:"index;size:36;not null" json:"app_id"`
+	AppID           string     `gorm:"index;size:36;not null;default:''" json:"app_id"`
 	OrderNo         string     `gorm:"uniqueIndex;size:64;not null" json:"order_no"`
 	UserID          string     `gorm:"index;size:36;not null" json:"user_id"`
 	User            users.User `gorm:"foreignKey:UserID" json:"user,omitempty"`
@@ -87,7 +86,7 @@ func (Order) TableName() string { return "billing_orders" }
 
 type Subscription struct {
 	ID                 string     `gorm:"primaryKey;size:36" json:"id"`
-	AppID              string     `gorm:"uniqueIndex:ux_subscriptions_app_user;size:36;not null" json:"app_id"`
+	AppID              string     `gorm:"uniqueIndex:ux_subscriptions_app_user;size:36;not null;default:''" json:"app_id"`
 	UserID             string     `gorm:"uniqueIndex:ux_subscriptions_app_user;size:36;not null" json:"user_id"`
 	User               users.User `gorm:"foreignKey:UserID" json:"user,omitempty"`
 	PlanID             string     `gorm:"index;size:36;not null" json:"plan_id"`

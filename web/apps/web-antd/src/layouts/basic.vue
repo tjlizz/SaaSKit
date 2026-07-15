@@ -18,7 +18,6 @@ import { preferences, usePreferences } from '@vben/preferences';
 import { useAccessStore, useUserStore } from '@vben/stores';
 import { openWindow } from '@vben/utils';
 
-import ApplicationSwitcher from '#/components/application-switcher.vue';
 import { $t } from '#/locales';
 import { useAuthStore } from '#/store';
 import LoginForm from '#/views/_core/authentication/login.vue';
@@ -219,9 +218,6 @@ watch(
 
 <template>
   <BasicLayout @clear-preferences-and-logout="handleLogout">
-    <template #header-right-1>
-      <ApplicationSwitcher />
-    </template>
     <template #user-dropdown>
       <UserDropdown
         :avatar

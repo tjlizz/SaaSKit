@@ -16,7 +16,6 @@ import { useAccessStore } from '@vben/stores';
 import { message } from 'ant-design-vue';
 
 import { useAuthStore } from '#/store';
-import { getCurrentApplicationId } from '#/utils/application-context';
 
 import { refreshTokenApi } from './core';
 
@@ -68,10 +67,6 @@ function createRequestClient(baseURL: string, options?: RequestClientOptions) {
 
       config.headers.Authorization = formatToken(accessStore.accessToken);
       config.headers['Accept-Language'] = preferences.app.locale;
-      const applicationId = getCurrentApplicationId();
-      if (applicationId) {
-        config.headers['X-App-ID'] = applicationId;
-      }
       return config;
     },
   });

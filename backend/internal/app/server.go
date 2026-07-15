@@ -33,11 +33,19 @@ func NewServer(db *gorm.DB, redisClient *redis.Client, cfg Config) (*Server, err
 		if err := db.Model(&Admin{}).Where("role = ? OR role IS NULL", "").Update("role", "super_admin").Error; err != nil {
 			return nil, err
 		}
+		// Existing installations predate multi-application support. Backfill
+		// app_id on all records that were created before the column existed.
+		var defaultApp Application
+		if err := db.Where("status = ?", "active").Order("created_at ASC").First(&defaultApp).Error; err == nil {
+			for _, table := range []string{"product_plans", "billing_orders", "user_subscriptions"} {
+				db.Table(table).Where("app_id = ? OR app_id = ''", "").Update("app_id", defaultApp.ID)
+			}
+		}
 	}
 	s := &Server{DB: db, Redis: redisClient, Config: cfg}
 	r := gin.New()
 	r.Use(gin.Recovery(), gin.Logger())
-	r.Use(cors.New(cors.Config{AllowOrigins: cfg.FrontendOrigins, AllowMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}, AllowHeaders: []string{"Authorization", "Content-Type", "X-API-Key", "X-API-Secret", "X-App-ID", "X-App-Key"}, AllowCredentials: true, MaxAge: 12 * time.Hour}))
+	r.Use(cors.New(cors.Config{AllowOrigins: cfg.FrontendOrigins, AllowMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}, AllowHeaders: []string{"Authorization", "Content-Type", "X-API-Key", "X-API-Secret", "X-App-Key"}, AllowCredentials: true, MaxAge: 12 * time.Hour}))
 	r.GET("/health", s.health)
 	api := r.Group("/api")
 	api.GET("/auth/initialization", s.initializationStatus)
@@ -63,12 +71,12 @@ func NewServer(db *gorm.DB, redisClient *redis.Client, cfg Config) (*Server, err
 	admin.GET("/me", s.adminInfo)
 	admin.GET("/applications", s.listApplications)
 	admin.POST("/applications", s.createApplication)
-	admin.PUT("/applications/:id", s.updateApplication)
-	admin.DELETE("/applications/:id", s.deleteApplication)
+	admin.PUT("/applications/:appId", s.updateApplication)
+	admin.DELETE("/applications/:appId", s.deleteApplication)
 	// Payment credentials belong to the deployment and are shared by all applications.
 	admin.GET("/payment-configs", s.listPaymentConfigs)
 	admin.PUT("/payment-configs/:provider", s.savePaymentConfig)
-	appAdmin := admin.Group("")
+	appAdmin := admin.Group("/applications/:appId")
 	appAdmin.Use(s.applicationContext())
 	appAdmin.GET("/api-clients", s.listAPIClients)
 	appAdmin.POST("/api-clients", s.createAPIClient)

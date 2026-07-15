@@ -18,10 +18,10 @@ func applicationID(c *gin.Context) string {
 
 func (s *Server) applicationContext() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		id := strings.TrimSpace(c.GetHeader("X-App-ID"))
+		id := strings.TrimSpace(c.Param("appId"))
 		var item Application
 		if id == "" || s.DB.Where("id = ? AND status = ?", id, "active").First(&item).Error != nil {
-			fail(c, 400, "a valid active application must be selected with X-App-ID")
+			fail(c, 400, "a valid active application must be selected")
 			return
 		}
 		c.Set(applicationIDContextKey, item.ID)
@@ -84,7 +84,7 @@ func (s *Server) createApplication(c *gin.Context) {
 
 func (s *Server) updateApplication(c *gin.Context) {
 	var item Application
-	if s.DB.First(&item, "id = ?", c.Param("id")).Error != nil {
+	if s.DB.First(&item, "id = ?", c.Param("appId")).Error != nil {
 		fail(c, 404, "application not found")
 		return
 	}
@@ -99,7 +99,7 @@ func (s *Server) updateApplication(c *gin.Context) {
 }
 
 func (s *Server) deleteApplication(c *gin.Context) {
-	id := c.Param("id")
+	id := c.Param("appId")
 	var count int64
 	var userCount int64
 	s.DB.Unscoped().Model(&users.User{}).Where("app_id = ?", id).Count(&userCount)

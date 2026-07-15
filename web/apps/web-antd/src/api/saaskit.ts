@@ -1,4 +1,10 @@
 import { requestClient } from '#/api/request';
+import { getCurrentApplicationId } from '#/utils/application-context';
+
+function appPrefix(): string {
+  const appId = getCurrentApplicationId();
+  return `/admin/applications/${appId}`;
+}
 
 export interface Application {
   id: string;
@@ -44,7 +50,6 @@ export interface Plan {
   auto_renew_supported: boolean;
   device_limit: number;
   credit_quota: number;
-  seat_limit: number;
   recommended: boolean;
   enabled: boolean;
   sort_order: number;
@@ -148,64 +153,64 @@ export function deleteApplicationApi(id: string) {
 }
 
 export function listUsersApi(params: UserQuery = {}) {
-  return requestClient.get<PageResult<User>>('/admin/users', { params });
+  return requestClient.get<PageResult<User>>(`${appPrefix()}/users`, { params });
 }
 
 export function createUserApi(data: UserInput) {
-  return requestClient.post<User>('/admin/users', data);
+  return requestClient.post<User>(`${appPrefix()}/users`, data);
 }
 
 export function updateUserApi(id: string, data: Partial<UserInput>) {
-  return requestClient.put<User>(`/admin/users/${id}`, data);
+  return requestClient.put<User>(`${appPrefix()}/users/${id}`, data);
 }
 
 export function setUserStatusApi(id: string, status: User['status']) {
-  return requestClient.put<User>(`/admin/users/${id}/status`, { status });
+  return requestClient.put<User>(`${appPrefix()}/users/${id}/status`, { status });
 }
 
 export function resetUserPasswordApi(id: string, password: string) {
-  return requestClient.put(`/admin/users/${id}/password`, { password });
+  return requestClient.put(`${appPrefix()}/users/${id}/password`, { password });
 }
 
 export function deleteUserApi(id: string) {
-  return requestClient.delete(`/admin/users/${id}`);
+  return requestClient.delete(`${appPrefix()}/users/${id}`);
 }
 
 export function listPlansApi() {
-  return requestClient.get<Plan[]>('/admin/plans');
+  return requestClient.get<Plan[]>(`${appPrefix()}/plans`);
 }
 
 export function createPlanApi(data: PlanInput) {
-  return requestClient.post<Plan>('/admin/plans', data);
+  return requestClient.post<Plan>(`${appPrefix()}/plans`, data);
 }
 
 export function updatePlanApi(id: string, data: PlanInput) {
-  return requestClient.put<Plan>(`/admin/plans/${id}`, data);
+  return requestClient.put<Plan>(`${appPrefix()}/plans/${id}`, data);
 }
 
 export function deletePlanApi(id: string) {
-  return requestClient.delete(`/admin/plans/${id}`);
+  return requestClient.delete(`${appPrefix()}/plans/${id}`);
 }
 
 export function listOrdersApi(
   params: { status?: string; user_id?: string } = {},
 ) {
-  return requestClient.get<Order[]>('/admin/orders', { params });
+  return requestClient.get<Order[]>(`${appPrefix()}/orders`, { params });
 }
 
 export function updateOrderStatusApi(
   id: string,
   status: 'cancelled' | 'refunded',
 ) {
-  return requestClient.put<Order>(`/admin/orders/${id}/status`, { status });
+  return requestClient.put<Order>(`${appPrefix()}/orders/${id}/status`, { status });
 }
 
 export function listSubscriptionsApi(params: { user_id?: string } = {}) {
-  return requestClient.get<Subscription[]>('/admin/subscriptions', { params });
+  return requestClient.get<Subscription[]>(`${appPrefix()}/subscriptions`, { params });
 }
 
 export function listApiClientsApi() {
-  return requestClient.get<ApiClient[]>('/admin/api-clients');
+  return requestClient.get<ApiClient[]>(`${appPrefix()}/api-clients`);
 }
 
 export function createApiClientApi(data: {
@@ -214,7 +219,7 @@ export function createApiClientApi(data: {
   rate_limit_per_min: number;
 }) {
   return requestClient.post<{ client: ApiClient; client_secret: string }>(
-    '/admin/api-clients',
+    `${appPrefix()}/api-clients`,
     data,
   );
 }
@@ -223,16 +228,16 @@ export function updateApiClientApi(
   id: string,
   data: { enabled?: boolean; name?: string; rate_limit_per_min?: number },
 ) {
-  return requestClient.put<ApiClient>(`/admin/api-clients/${id}`, data);
+  return requestClient.put<ApiClient>(`${appPrefix()}/api-clients/${id}`, data);
 }
 
 export function deleteApiClientApi(id: string) {
-  return requestClient.delete(`/admin/api-clients/${id}`);
+  return requestClient.delete(`${appPrefix()}/api-clients/${id}`);
 }
 
 export function rotateApiClientSecretApi(id: string) {
   return requestClient.post<{ client_secret: string }>(
-    `/admin/api-clients/${id}/rotate-secret`,
+    `${appPrefix()}/api-clients/${id}/rotate-secret`,
   );
 }
 

@@ -37,10 +37,8 @@ async function load() {
 
 function change(value: unknown) {
   if (typeof value !== 'string') return;
-  const id = value;
-  selectedId.value = id;
-  setCurrentApplicationId(id);
-  router.go(0);
+  selectedId.value = value;
+  setCurrentApplicationId(value);
 }
 
 onMounted(load);
