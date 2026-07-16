@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"strings"
 	"time"
 
@@ -229,35 +230,45 @@ func (s *Server) paymentNotify(c *gin.Context) {
 }
 
 func (s *Server) markPaid(orderNo, tradeNo string) error {
+	log.Printf("[payment] processing: order_no=%s trade_no=%s", orderNo, tradeNo)
 	return s.DB.Transaction(func(tx *gorm.DB) error {
 		var order Order
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("order_no = ?", orderNo).First(&order).Error; err != nil {
+			log.Printf("[payment] order not found: order_no=%s err=%v", orderNo, err)
 			return err
 		}
 		if order.Status == "paid" {
+			log.Printf("[payment] already paid (idempotent): order_no=%s user_id=%s", orderNo, order.UserID)
 			return nil
 		}
 		if order.Status != "pending" {
-			return fmt.Errorf("order status is %s", order.Status)
+			err := fmt.Errorf("order status is %s", order.Status)
+			log.Printf("[payment] invalid order status: order_no=%s status=%s", orderNo, order.Status)
+			return err
 		}
 		now := time.Now()
 		if err := tx.Model(&order).Updates(map[string]any{"status": "paid", "provider_trade_no": tradeNo, "paid_at": &now}).Error; err != nil {
+			log.Printf("[payment] failed to mark order paid: order_no=%s err=%v", orderNo, err)
 			return err
 		}
+		log.Printf("[payment] order marked paid: order_no=%s trade_no=%s user_id=%s plan_id=%s amount_cents=%d", orderNo, tradeNo, order.UserID, order.PlanID, order.AmountCents)
 		var plan Plan
 		if err := tx.First(&plan, "id = ?", order.PlanID).Error; err != nil {
+			log.Printf("[payment] plan not found: order_no=%s plan_id=%s err=%v", orderNo, order.PlanID, err)
 			return err
 		}
 		var subscription Subscription
-		err := tx.Where("app_id = ? AND user_id = ?", order.AppID, order.UserID).First(&subscription).Error
+		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("app_id = ? AND user_id = ?", order.AppID, order.UserID).First(&subscription).Error
 		start := now
 		if err == nil && subscription.SubscriptionStatus == "active" && subscription.CurrentPeriodEnd.After(now) {
 			start = subscription.CurrentPeriodEnd
 		} else if err != nil && !isNotFound(err) {
+			log.Printf("[payment] failed to query subscription: order_no=%s user_id=%s err=%v", orderNo, order.UserID, err)
 			return err
 		}
 		end := periodEnd(start, plan.BillingCycle)
-		if isNotFound(err) {
+		isNew := isNotFound(err)
+		if isNew {
 			subscription = Subscription{ID: uuid.NewString(), AppID: order.AppID, UserID: order.UserID}
 		}
 		subscription.PlanID = plan.ID
@@ -267,7 +278,17 @@ func (s *Server) markPaid(orderNo, tradeNo string) error {
 		subscription.CurrentPeriodEnd = end
 		subscription.AutoRenew = false
 		subscription.RemainingCredits = plan.CreditQuota
-		return tx.Save(&subscription).Error
+		if err := tx.Save(&subscription).Error; err != nil {
+			log.Printf("[payment] failed to save subscription: order_no=%s user_id=%s err=%v", orderNo, order.UserID, err)
+			return err
+		}
+		action := "updated"
+		if isNew {
+			action = "created"
+		}
+		log.Printf("[payment] subscription %s: order_no=%s user_id=%s plan=%s period_end=%s credits=%d",
+			action, orderNo, order.UserID, plan.PlanCode, end.Format(time.RFC3339), plan.CreditQuota)
+		return nil
 	})
 }
 func periodEnd(start time.Time, cycle string) time.Time {
